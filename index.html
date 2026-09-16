@@ -15,6 +15,39 @@
   <noscript>Ta aplikacja wymaga włączonego JavaScript.</noscript>
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.116.0/dist/umd/supabase.min.js"></script>
   <script src="./config.js"></script>
+  <script>
+    (() => {
+      const supabaseLib = window.supabase;
+      if (!supabaseLib?.createClient) return;
+      const originalCreateClient = supabaseLib.createClient.bind(supabaseLib);
+      supabaseLib.createClient = function(...args) {
+        const client = originalCreateClient(...args);
+        const originalInvoke = client.functions.invoke.bind(client.functions);
+        client.functions.invoke = async function(name, options = {}) {
+          const isAdminPinStatus = name === 'employee-auth' && options?.body?.action === 'admin_pin_status';
+          if (!isAdminPinStatus) return originalInvoke(name, options);
+
+          let primary;
+          try {
+            primary = await originalInvoke(name, options);
+            if (!primary?.error) return primary;
+          } catch (error) {
+            primary = { data: null, error };
+          }
+
+          try {
+            const { data, error } = await client.rpc('admin_pin_status_fallback');
+            if (!error) {
+              return { data: { ok: true, configured: data === true }, error: null };
+            }
+          } catch (_) {}
+
+          return primary;
+        };
+        return client;
+      };
+    })();
+  </script>
   <script src="./loader.js" defer></script>
   <script src="./comments.js" defer></script>
 </body>
