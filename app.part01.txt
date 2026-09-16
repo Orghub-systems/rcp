@@ -1,0 +1,228 @@
+(() => {
+  'use strict';
+
+  const cfg = window.RCP_CONFIG;
+  if (!cfg || !window.supabase) {
+    document.getElementById('app').innerHTML = '<div class="shell"><div class="card notice-error">Błąd konfiguracji aplikacji.</div></div>';
+    return;
+  }
+
+  const db = window.supabase.createClient(cfg.supabaseUrl, cfg.supabasePublishableKey, {
+    auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true }
+  });
+
+  const $app = document.getElementById('app');
+  const state = {
+    user: null,
+    memberships: [],
+    membership: null,
+    organizations: [],
+    organization: null,
+    platformAdmin: false,
+    platformOrganizations: [],
+    view: 'organization',
+    sessions: [],
+    currentSession: null,
+    members: [],
+    rates: [],
+    adminSessions: [],
+    adminTab: 'dashboard',
+    busy: false,
+    timerHandle: null
+  };
+
+  const esc = (v = '') => String(v).replace(/[&<>'"]/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[ch]));
+  const fmtMoney = n => n == null ? '—' : new Intl.NumberFormat('pl-PL', { style: 'currency', currency: 'PLN' }).format(Number(n));
+  const activeTimezone = () => state.organization?.timezone || cfg.timezone || 'Europe/Warsaw';
+  const fmtDate = iso => new Intl.DateTimeFormat('pl-PL', { timeZone: activeTimezone(), day:'2-digit', month:'2-digit', year:'numeric' }).format(new Date(iso));
+  const fmtTime = iso => new Intl.DateTimeFormat('pl-PL', { timeZone: activeTimezone(), hour:'2-digit', minute:'2-digit' }).format(new Date(iso));
+  const fmtDateTime = iso => `${fmtDate(iso)} ${fmtTime(iso)}`;
+  const hhmm = mins => {
+    mins = Math.max(0, Math.floor(Number(mins || 0)));
+    return `${Math.floor(mins / 60)} h ${String(mins % 60).padStart(2, '0')} min`;
+  };
+  const durationMinutes = (start, end = Date.now()) => Math.max(0, Math.floor((new Date(end).getTime() - new Date(start).getTime()) / 60000));
+  const localDateKey = date => new Intl.DateTimeFormat('en-CA', { timeZone: activeTimezone(), year:'numeric', month:'2-digit', day:'2-digit' }).format(date);
+
+  function timezoneOffsetMinutes(date, timeZone = activeTimezone()) {
+    const parts = new Intl.DateTimeFormat('en-US', { timeZone, timeZoneName: 'longOffset', hour: '2-digit' }).formatToParts(date);
+    const zone = parts.find(p => p.type === 'timeZoneName')?.value || 'GMT+00:00';
+    const m = zone.match(/GMT([+-])(\d{2}):(\d{2})/);
+    if (!m) return 0;
+    const minutes = Number(m[2]) * 60 + Number(m[3]);
+    return m[1] === '+' ? minutes : -minutes;
+  }
+
+  function zonedLocalToIso(value, timeZone = activeTimezone()) {
+    if (!value) return null;
+    const [datePart, timePart] = value.split('T');
+    const [y, mo, d] = datePart.split('-').map(Number);
+    const [h, mi] = timePart.split(':').map(Number);
+    const wallUtc = Date.UTC(y, mo - 1, d, h, mi, 0, 0);
+    const offset = timezoneOffsetMinutes(new Date(wallUtc), timeZone);
+    return new Date(wallUtc - offset * 60000).toISOString();
+  }
+
+  const thisMonthStartIso = () => {
+    const tz = activeTimezone();
+    const parts = new Intl.DateTimeFormat('en-CA', { timeZone: tz, year:'numeric', month:'2-digit' }).formatToParts(new Date());
+    const y = parts.find(p => p.type === 'year').value;
+    const m = parts.find(p => p.type === 'month').value;
+    return zonedLocalToIso(`${y}-${m}-01T00:00`, tz);
+  };
+
+  function toast(message, type = 'info') {
+    const el = document.createElement('div');
+    el.className = `notice notice-${type}`;
+    el.textContent = message;
+    el.style.position = 'fixed';
+    el.style.left = '50%';
+    el.style.bottom = '20px';
+    el.style.transform = 'translateX(-50%)';
+    el.style.zIndex = '100';
+    el.style.width = 'min(92vw, 520px)';
+    el.style.boxShadow = '0 14px 34px rgba(17,24,39,.22)';
+    document.body.appendChild(el);
+    setTimeout(() => el.remove(), 3800);
+  }
+
+  function loading() {
+    clearTimer();
+    $app.innerHTML = `<div class="shell"><div class="topbar"><div class="brand"><div class="logo">RCP</div><div class="brand-copy"><div class="brand-title">${esc(cfg.appName)}</div><div class="brand-sub">Ładowanie…</div></div></div></div><div class="card"><div class="spinner"></div></div></div>`;
+  }
+
+  function clearTimer() {
+    if (state.timerHandle) clearInterval(state.timerHandle);
+    state.timerHandle = null;
+  }
+
+  function resetTenantState() {
+    state.memberships = [];
+    state.membership = null;
+    state.organizations = [];
+    state.organization = null;
+    state.platformAdmin = false;
+    state.platformOrganizations = [];
+    state.view = 'organization';
+  }
+
+  async function loadIdentity() {
+    const { data: userData, error: userError } = await db.auth.getUser();
+    state.user = userError ? null : (userData?.user || null);
+    if (!state.user) {
+      resetTenantState();
+      return;
+    }
+
+    const [membershipsRes, orgsRes, platformRes] = await Promise.all([
+      db.from('organization_members')
+        .select('id, organization_id, user_id, first_name, last_name, role, active, login_email')
+        .eq('user_id', state.user.id)
+        .eq('active', true)
+        .order('created_at', { ascending: true }),
+      db.from('organizations').select('id, name, slug, timezone').order('name'),
+      db.rpc('is_platform_admin')
+    ]);
+
+    if (membershipsRes.error) throw membershipsRes.error;
+    if (orgsRes.error) throw orgsRes.error;
+    if (platformRes.error) throw platformRes.error;
+
+    state.memberships = membershipsRes.data || [];
+    state.organizations = orgsRes.data || [];
+    state.platformAdmin = platformRes.data === true;
+
+    const savedMemberId = localStorage.getItem('rcp:selected-membership');
+    const selected = state.memberships.find(m => m.id === savedMemberId) || state.memberships[0] || null;
+    state.membership = selected;
+    state.organization = selected ? state.organizations.find(o => o.id === selected.organization_id) || null : null;
+
+    const savedView = localStorage.getItem('rcp:view');
+    if (savedView === 'platform' && state.platformAdmin) state.view = 'platform';
+    else state.view = state.membership ? 'organization' : (state.platformAdmin ? 'platform' : 'organization');
+  }
+
+  function renderLogin(message = '') {
+    clearTimer();
+    $app.innerHTML = `
+      <div class="shell">
+        <div class="login-wrap">
+          <div class="logo login-logo">RCP</div>
+          <div class="card">
+            <h2>Rejestracja czasu pracy</h2>
+            <p class="muted">Wpisz adres e-mail przypisany do firmy. Jedno konto może obsługiwać kilka podmiotów.</p>
+            <form id="loginForm">
+              <div class="field">
+                <label for="loginEmail">E-mail</label>
+                <input id="loginEmail" class="input" type="email" autocomplete="email" placeholder="np. pracownik@firma.pl" required />
+              </div>
+              <button class="btn btn-dark btn-block" type="submit">Wyślij link logowania</button>
+            </form>
+            ${message ? `<div class="notice notice-info">${esc(message)}</div>` : ''}
+          </div>
+        </div>
+      </div>`;
+
+    document.getElementById('loginForm').addEventListener('submit', async e => {
+      e.preventDefault();
+      const email = document.getElementById('loginEmail').value.trim().toLowerCase();
+      const btn = e.currentTarget.querySelector('button');
+      btn.disabled = true;
+      btn.textContent = 'Wysyłanie…';
+      const redirectTo = window.location.href.split('#')[0].split('?')[0];
+      const { error } = await db.auth.signInWithOtp({ email, options: { emailRedirectTo: redirectTo } });
+      if (error) {
+        toast(error.message, 'error');
+        btn.disabled = false;
+        btn.textContent = 'Wyślij link logowania';
+        return;
+      }
+      renderLogin('Link logowania został wysłany. Otwórz wiadomość na tym urządzeniu i kliknij link.');
+    });
+  }
+
+  function roleLabel(role) {
+    return role === 'admin' ? 'Administrator' : 'Pracownik';
+  }
+
+  function topbar(subtitle = '') {
+    const name = state.membership
+      ? `${state.membership.first_name}${state.membership.last_name ? ' ' + state.membership.last_name : ''}`
+      : (state.user?.email || '');
+
+    const switcher = state.memberships.length > 1 ? `
+      <select id="orgSwitcher" class="org-switcher" aria-label="Wybierz firmę">
+        ${state.memberships.map(m => {
+          const org = state.organizations.find(o => o.id === m.organization_id);
+          return `<option value="${m.id}" ${m.id === state.membership?.id ? 'selected' : ''}>${esc(org?.name || 'Firma')} · ${esc(roleLabel(m.role))}</option>`;
+        }).join('')}
+      </select>` : '';
+
+    return `<div class="topbar topbar-multi">
+      <div class="brand"><div class="logo">RCP</div><div class="brand-copy"><div class="brand-title">${esc(state.view === 'platform' ? cfg.appName : (state.organization?.name || cfg.appName))}</div><div class="brand-sub">${esc(subtitle || name)}</div>${switcher}</div></div>
+      <div class="top-actions">
+        ${state.platformAdmin ? `<button id="platformBtn" class="btn btn-icon" type="button">${state.view === 'platform' ? 'Firma' : 'Firmy'}</button>` : ''}
+        <button id="logoutBtn" class="btn btn-icon" type="button">Wyloguj</button>
+      </div>
+    </div>`;
+  }
+
+  function bindTopbar() {
+    document.getElementById('logoutBtn')?.addEventListener('click', logout);
+    document.getElementById('orgSwitcher')?.addEventListener('change', e => selectMembership(e.target.value));
+    document.getElementById('platformBtn')?.addEventListener('click', async () => {
+      if (state.view === 'platform' && state.membership) {
+        state.view = 'organization';
+        localStorage.setItem('rcp:view', 'organization');
+        await renderSelectedTenant();
+      } else {
+        state.view = 'platform';
+        localStorage.setItem('rcp:view', 'platform');
+        await loadPlatformData();
+        renderPlatform();
+      }
+    });
+  }
+
+  async function selectMembership(memberId) {
+    const membership = state.memberships.
