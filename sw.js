@@ -1,4 +1,4 @@
-const CACHE = 'rcp-shell-v3';
+const CACHE = 'rcp-shell-v4';
 const SHELL = [
   './',
   './index.html',
@@ -8,12 +8,9 @@ const SHELL = [
   './app.part02.txt',
   './app.part03.txt',
   './app.part04.txt',
-  './app.part05.txt',
-  './app.part06.txt',
   './config.js',
   './manifest.webmanifest',
-  './icons/icon-192.png',
-  './icons/icon-512.png'
+  './icon.svg'
 ];
 
 self.addEventListener('install', event => {
