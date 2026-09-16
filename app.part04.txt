@@ -1,0 +1,119 @@
+< 0 || !valid_from) return toast('Sprawdź stawkę i datę.', 'error');
+      save.disabled = true;
+      const { error } = await db.from('employee_rates').insert({ member_id: memberId, hourly_rate, valid_from });
+      if (error) { toast(error.message, 'error'); save.disabled = false; return; }
+      wrap.remove(); toast('Stawka zapisana.', 'success'); await loadAdminData(); renderAdmin();
+    });
+  }
+
+  async function toggleMember(memberId, active) {
+    const { error } = await db.from('organization_members').update({ active: !active }).eq('id', memberId);
+    if (error) return toast(error.message, 'error');
+    toast(!active ? 'Pracownik aktywowany.' : 'Pracownik dezaktywowany.', 'success');
+    await loadAdminData(); renderAdmin();
+  }
+
+  function toLocalInput(iso) {
+    if (!iso) return '';
+    const d = new Date(iso);
+    const parts = new Intl.DateTimeFormat('sv-SE', { timeZone: activeTimezone(), year:'numeric', month:'2-digit', day:'2-digit', hour:'2-digit', minute:'2-digit', hour12:false }).format(d);
+    return parts.replace(' ', 'T');
+  }
+
+  function localInputToIso(value) {
+    return zonedLocalToIso(value);
+  }
+
+  function employeeOptions(selected = '') {
+    return state.members.filter(m => m.role === 'employee' && m.active).map(m => `<option value="${m.id}" ${m.id === selected ? 'selected' : ''}>${esc(m.first_name)} ${esc(m.last_name || '')}</option>`).join('');
+  }
+
+  function openAddSession() {
+    const now = new Date();
+    const start = new Date(now.getTime() - 8 * 3600000);
+    const { wrap, save } = dialog('Dodaj wpis czasu', `<div class="form-grid">
+      <div class="field span-2"><label>Pracownik</label><select id="sessMember" class="select">${employeeOptions()}</select></div>
+      <div class="field"><label>Start</label><input id="sessStart" class="input" type="datetime-local" value="${toLocalInput(start.toISOString())}" required></div>
+      <div class="field"><label>Koniec</label><input id="sessEnd" class="input" type="datetime-local" value="${toLocalInput(now.toISOString())}" required></div>
+      <div class="field span-2"><label>Notatka</label><input id="sessNote" class="input"></div>
+    </div>`);
+    save.addEventListener('click', async () => {
+      const member_id = wrap.querySelector('#sessMember').value;
+      const started_at = localInputToIso(wrap.querySelector('#sessStart').value);
+      const ended_at = localInputToIso(wrap.querySelector('#sessEnd').value);
+      const note = wrap.querySelector('#sessNote').value.trim() || null;
+      if (!member_id || !started_at || !ended_at || new Date(ended_at) <= new Date(started_at)) return toast('Sprawdź godziny.', 'error');
+      save.disabled = true;
+      const { error } = await db.from('work_sessions').insert({ member_id, started_at, ended_at, note, created_by: state.user.id });
+      if (error) { toast(error.message, 'error'); save.disabled = false; return; }
+      wrap.remove(); toast('Wpis dodany.', 'success'); await loadAdminData(); renderAdmin();
+    });
+  }
+
+  function openEditSession(id) {
+    const s = state.adminSessions.find(x => x.id === id);
+    if (!s) return;
+    const { wrap, save } = dialog('Edytuj czas pracy', `<div class="form-grid">
+      <div class="field span-2"><label>Pracownik</label><select id="sessMember" class="select">${employeeOptions(s.member_id)}</select></div>
+      <div class="field"><label>Start</label><input id="sessStart" class="input" type="datetime-local" value="${toLocalInput(s.started_at)}" required></div>
+      <div class="field"><label>Koniec</label><input id="sessEnd" class="input" type="datetime-local" value="${toLocalInput(s.ended_at)}"></div>
+      <div class="field span-2"><label>Notatka</label><input id="sessNote" class="input" value="${esc(s.note || '')}"></div>
+    </div>`);
+    save.addEventListener('click', async () => {
+      const member_id = wrap.querySelector('#sessMember').value;
+      const started_at = localInputToIso(wrap.querySelector('#sessStart').value);
+      const endRaw = wrap.querySelector('#sessEnd').value;
+      const ended_at = endRaw ? localInputToIso(endRaw) : null;
+      const note = wrap.querySelector('#sessNote').value.trim() || null;
+      if (!member_id || !started_at || (ended_at && new Date(ended_at) <= new Date(started_at))) return toast('Sprawdź godziny.', 'error');
+      save.disabled = true;
+      const { error } = await db.from('work_sessions').update({ member_id, started_at, ended_at, note }).eq('id', id);
+      if (error) { toast(error.message, 'error'); save.disabled = false; return; }
+      wrap.remove(); toast('Wpis poprawiony.', 'success'); await loadAdminData(); renderAdmin();
+    });
+  }
+
+  async function renderSelectedTenant() {
+    if (!state.membership) {
+      if (state.platformAdmin) {
+        state.view = 'platform';
+        await loadPlatformData();
+        return renderPlatform();
+      }
+      return noAccess();
+    }
+    if (state.membership.role === 'admin') {
+      await loadAdminData();
+      return renderAdmin();
+    }
+    await loadEmployeeData();
+    return renderEmployee();
+  }
+
+  async function route() {
+    loading();
+    try {
+      await loadIdentity();
+      if (!state.user) return renderLogin();
+      if (state.view === 'platform' && state.platformAdmin) {
+        await loadPlatformData();
+        return renderPlatform();
+      }
+      return await renderSelectedTenant();
+    } catch (err) {
+      console.error(err);
+      $app.innerHTML = `<div class="shell"><div class="card"><h2>Błąd aplikacji</h2><div class="notice notice-error">${esc(err?.message || 'Nie udało się pobrać danych.')}</div><button id="retryBtn" class="btn btn-dark" style="margin-top:12px">Spróbuj ponownie</button></div></div>`;
+      document.getElementById('retryBtn').addEventListener('click', route);
+    }
+  }
+
+  db.auth.onAuthStateChange((event) => {
+    if (['SIGNED_IN','SIGNED_OUT','USER_UPDATED','TOKEN_REFRESHED'].includes(event)) setTimeout(route, 0);
+  });
+
+  if ('serviceWorker' in navigator) {
+    window.addEventListener('load', () => navigator.serviceWorker.register('./sw.js').catch(console.warn));
+  }
+
+  route();
+})();
