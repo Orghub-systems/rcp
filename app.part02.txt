@@ -1,0 +1,209 @@
+find(m => m.id === memberId);
+    if (!membership) return;
+    state.membership = membership;
+    state.organization = state.organizations.find(o => o.id === membership.organization_id) || null;
+    state.view = 'organization';
+    state.adminTab = 'dashboard';
+    localStorage.setItem('rcp:selected-membership', memberId);
+    localStorage.setItem('rcp:view', 'organization');
+    loading();
+    await renderSelectedTenant();
+  }
+
+  async function logout() {
+    await db.auth.signOut();
+    state.user = null;
+    resetTenantState();
+    renderLogin();
+  }
+
+  function noAccess() {
+    clearTimer();
+    $app.innerHTML = `<div class="shell">${topbar(state.user?.email || '')}<div class="card"><h2>Brak przypisanej firmy</h2><p class="muted">To konto istnieje, ale nie jest przypisane do aktywnej firmy w RCP. Administrator firmy musi dodać ten adres e-mail do zespołu.</p></div></div>`;
+    bindTopbar();
+  }
+
+  async function loadEmployeeData() {
+    const memberId = state.membership.id;
+    const { data: sessions, error } = await db.from('work_sessions_with_earnings')
+      .select('*')
+      .eq('member_id', memberId)
+      .gte('started_at', thisMonthStartIso())
+      .order('started_at', { ascending: false });
+    if (error) throw error;
+    state.sessions = sessions || [];
+    state.currentSession = state.sessions.find(s => !s.ended_at) || null;
+  }
+
+  function employeeTotals() {
+    const today = localDateKey(new Date());
+    let todayMinutes = 0;
+    let monthMinutes = 0;
+    let earnings = 0;
+    for (const s of state.sessions) {
+      const mins = durationMinutes(s.started_at, s.ended_at || Date.now());
+      monthMinutes += mins;
+      if (localDateKey(new Date(s.started_at)) === today) todayMinutes += mins;
+      if (s.hourly_rate != null) earnings += (mins / 60) * Number(s.hourly_rate);
+    }
+    return { todayMinutes, monthMinutes, earnings };
+  }
+
+  function renderEmployee() {
+    clearTimer();
+    const current = state.currentSession;
+    const totals = employeeTotals();
+    const history = state.sessions.filter(s => s.ended_at).slice(0, 12);
+
+    $app.innerHTML = `<div class="shell">
+      ${topbar(`Pracownik · ${state.membership.first_name}`)}
+      <div class="card hero">
+        <div id="statusPill" class="status-pill ${current ? 'status-on' : 'status-off'}"><span class="dot"></span>${current ? 'PRACUJESZ' : 'NIE PRACUJESZ'}</div>
+        <div id="liveTimer" class="timer">${current ? hhmm(durationMinutes(current.started_at)) : '0 h 00 min'}</div>
+        <div class="timer-label">${current ? `Start: ${fmtTime(current.started_at)}` : 'Gotowy do rozpoczęcia pracy'}</div>
+        <button id="punchBtn" class="punch-btn ${current ? 'punch-stop' : 'punch-start'}" type="button">${current ? 'KOŃCZĘ' : 'ZACZYNAM'}</button>
+      </div>
+      <div class="card">
+        <div class="stats">
+          <div class="stat"><div class="stat-label">Dzisiaj</div><div id="todayStat" class="stat-value">${hhmm(totals.todayMinutes)}</div></div>
+          <div class="stat"><div class="stat-label">Ten miesiąc</div><div id="monthStat" class="stat-value">${hhmm(totals.monthMinutes)}</div></div>
+          <div class="stat"><div class="stat-label">Zarobione</div><div id="earnStat" class="stat-value">${fmtMoney(totals.earnings)}</div></div>
+        </div>
+      </div>
+      <div class="card">
+        <div class="section-head"><h3>Ostatnie wpisy</h3><span class="small muted">bez możliwości edycji</span></div>
+        <div class="list">
+          ${history.length ? history.map(s => `<div class="row"><div class="row-main"><div class="row-title">${fmtDate(s.started_at)}</div><div class="row-sub">${fmtTime(s.started_at)}–${fmtTime(s.ended_at)} · ${hhmm(s.duration_minutes)}</div></div><div class="row-amount">${fmtMoney(s.earnings)}</div></div>`).join('') : '<div class="muted small">Brak zakończonych wpisów w tym miesiącu.</div>'}
+        </div>
+      </div>
+    </div>`;
+
+    bindTopbar();
+    document.getElementById('punchBtn').addEventListener('click', togglePunch);
+
+    if (current) {
+      state.timerHandle = setInterval(() => {
+        const mins = durationMinutes(current.started_at);
+        const el = document.getElementById('liveTimer');
+        if (el) el.textContent = hhmm(mins);
+        const t = employeeTotals();
+        if (document.getElementById('todayStat')) document.getElementById('todayStat').textContent = hhmm(t.todayMinutes);
+        if (document.getElementById('monthStat')) document.getElementById('monthStat').textContent = hhmm(t.monthMinutes);
+        if (document.getElementById('earnStat')) document.getElementById('earnStat').textContent = fmtMoney(t.earnings);
+      }, 30000);
+    }
+  }
+
+  async function togglePunch() {
+    if (state.busy) return;
+    state.busy = true;
+    const btn = document.getElementById('punchBtn');
+    if (btn) btn.disabled = true;
+    const fn = state.currentSession ? 'stop_work' : 'start_work';
+    const { error } = await db.rpc(fn, { p_member_id: state.membership.id });
+    if (error) {
+      toast(error.message, 'error');
+      state.busy = false;
+      if (btn) btn.disabled = false;
+      return;
+    }
+    toast(state.currentSession ? 'Czas pracy zakończony.' : 'Czas pracy rozpoczęty.', 'success');
+    await loadEmployeeData();
+    state.busy = false;
+    renderEmployee();
+  }
+
+  async function loadAdminData() {
+    const orgId = state.membership.organization_id;
+    const monthStart = thisMonthStartIso();
+    const [membersRes, sessionsRes] = await Promise.all([
+      db.from('organization_members').select('*').eq('organization_id', orgId).order('active', { ascending: false }).order('first_name'),
+      db.from('work_sessions_with_earnings').select('*').eq('organization_id', orgId).gte('started_at', monthStart).order('started_at', { ascending: false })
+    ]);
+    if (membersRes.error) throw membersRes.error;
+    if (sessionsRes.error) throw sessionsRes.error;
+    state.members = membersRes.data || [];
+    state.adminSessions = sessionsRes.data || [];
+
+    const ids = state.members.map(m => m.id);
+    if (ids.length) {
+      const ratesRes = await db.from('employee_rates').select('*').in('member_id', ids).order('valid_from', { ascending: false });
+      if (ratesRes.error) throw ratesRes.error;
+      state.rates = ratesRes.data || [];
+    } else {
+      state.rates = [];
+    }
+  }
+
+  function adminMetrics() {
+    const employees = state.members.filter(m => m.role === 'employee' && m.active);
+    const open = state.adminSessions.filter(s => !s.ended_at);
+    const today = localDateKey(new Date());
+    let todayMinutes = 0;
+    let monthEarnings = 0;
+    for (const s of state.adminSessions) {
+      const mins = durationMinutes(s.started_at, s.ended_at || Date.now());
+      if (localDateKey(new Date(s.started_at)) === today) todayMinutes += mins;
+      if (s.hourly_rate != null) monthEarnings += (mins / 60) * Number(s.hourly_rate);
+    }
+    return { employees: employees.length, open: open.length, todayMinutes, monthEarnings };
+  }
+
+  function memberCurrent(memberId) {
+    return state.adminSessions.find(s => s.member_id === memberId && !s.ended_at) || null;
+  }
+
+  function memberMonth(memberId) {
+    const list = state.adminSessions.filter(s => s.member_id === memberId);
+    return list.reduce((acc, s) => {
+      const mins = durationMinutes(s.started_at, s.ended_at || Date.now());
+      acc.minutes += mins;
+      if (s.hourly_rate != null) acc.earnings += mins / 60 * Number(s.hourly_rate);
+      return acc;
+    }, { minutes: 0, earnings: 0 });
+  }
+
+  function renderAdmin() {
+    clearTimer();
+    const m = adminMetrics();
+    const tabs = [['dashboard','Pulpit'], ['team','Zespół'], ['time','Czas pracy']];
+
+    let content = '';
+    if (state.adminTab === 'dashboard') content = adminDashboardContent(m);
+    if (state.adminTab === 'team') content = adminTeamContent();
+    if (state.adminTab === 'time') content = adminTimeContent();
+
+    $app.innerHTML = `<div class="shell">
+      ${topbar(`Administrator · ${state.membership.first_name}`)}
+      <div class="tabs">${tabs.map(([id,label]) => `<button class="tab ${state.adminTab === id ? 'active' : ''}" data-tab="${id}">${label}</button>`).join('')}</div>
+      ${content}
+    </div>`;
+
+    bindTopbar();
+    document.querySelectorAll('[data-tab]').forEach(b => b.addEventListener('click', () => { state.adminTab = b.dataset.tab; renderAdmin(); }));
+    bindAdminActions();
+
+    state.timerHandle = setInterval(async () => {
+      try { await loadAdminData(); renderAdmin(); } catch (_) { /* keep current screen */ }
+    }, 60000);
+  }
+
+  function adminDashboardContent(m) {
+    const open = state.adminSessions.filter(s => !s.ended_at);
+    return `<div class="admin-grid">
+      <div class="metric"><div class="metric-label">Aktywni pracownicy</div><div class="metric-value">${m.employees}</div></div>
+      <div class="metric"><div class="metric-label">Teraz pracuje</div><div class="metric-value">${m.open}</div></div>
+      <div class="metric"><div class="metric-label">Koszt miesiąca</div><div class="metric-value">${fmtMoney(m.monthEarnings)}</div></div>
+    </div>
+    <div class="card" style="margin-top:14px">
+      <div class="section-head"><h3>Kto teraz pracuje</h3><span class="small muted">odświeżanie co 60 s</span></div>
+      <div class="list">${open.length ? open.map(s => `<div class="row"><div><div class="row-title">${esc(s.first_name)} ${esc(s.last_name || '')}</div><div class="row-sub">Od ${fmtTime(s.started_at)} · ${hhmm(durationMinutes(s.started_at))}</div></div><div class="member-status" style="color:var(--green)"><span class="dot"></span>PRACUJE</div></div>`).join('') : '<div class="muted small">Nikt aktualnie nie ma otwartej sesji.</div>'}</div>
+    </div>
+    <div class="card">
+      <h3>Dzisiaj</h3>
+      <div class="stat"><div class="stat-label">Łącznie zarejestrowano</div><div class="stat-value">${hhmm(m.todayMinutes)}</div></div>
+    </div>`;
+  }
+
+  function adminTeamContent() {
+    const employees = state.members.filter(m => m.ro
