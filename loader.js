@@ -6,7 +6,7 @@
     './app.part04.txt'
   ];
 
-  function patchEmployeeAuth(source) {
+  function patchRcp(source) {
     source = source.replace(
       ".select('id, organization_id, user_id, first_name, last_name, role, active, login_email')",
       ".select('id, organization_id, user_id, first_name, last_name, role, active, login_email, employee_login')"
@@ -52,14 +52,20 @@
         <button class="btn btn-dark btn-block" type="submit">Zaloguj</button>
       </form>\`;
 
+    const adminEmail = state.user?.email || '';
     const adminForm = \`
-      <p class="muted">Administrator loguje się e-mailem przez bezpieczny link.</p>
+      <p class="muted">Administrator loguje się adresem e-mail i 6-cyfrowym PIN-em.</p>
       <form id="adminLoginForm">
         <div class="field">
           <label for="loginEmail">E-mail</label>
-          <input id="loginEmail" class="input" type="email" autocomplete="email" placeholder="np. biuro@firma.pl" required />
+          <input id="loginEmail" class="input" type="email" autocomplete="username" value="\${esc(adminEmail)}" placeholder="np. biuro@firma.pl" required />
         </div>
-        <button class="btn btn-dark btn-block" type="submit">Wyślij link logowania</button>
+        <div class="field">
+          <label for="adminPin">PIN</label>
+          <input id="adminPin" class="input" type="password" inputmode="numeric" autocomplete="current-password" pattern="[0-9]{6}" maxlength="6" placeholder="••••••" required />
+        </div>
+        <button class="btn btn-dark btn-block" type="submit">Zaloguj</button>
+        <button id="adminPinSetupBtn" class="btn btn-light btn-block" type="button" style="margin-top:8px">Ustaw / zresetuj PIN przez e-mail</button>
       </form>\`;
 
     $app.innerHTML = \`
@@ -100,6 +106,7 @@
         return;
       }
 
+      sessionStorage.removeItem('rcp:admin-pin-ok');
       const { error: sessionError } = await db.auth.setSession({
         access_token: data.session.access_token,
         refresh_token: data.session.refresh_token
@@ -117,18 +124,104 @@
     document.getElementById('adminLoginForm')?.addEventListener('submit', async e => {
       e.preventDefault();
       const email = document.getElementById('loginEmail').value.trim().toLowerCase();
-      const btn = e.currentTarget.querySelector('button');
+      const pin = document.getElementById('adminPin').value.trim();
+      const btn = e.currentTarget.querySelector('button[type="submit"]');
+      if (!/^\\d{6}$/.test(pin)) return toast('PIN administratora musi mieć dokładnie 6 cyfr.', 'error');
+      btn.disabled = true;
+      btn.textContent = 'Logowanie…';
+
+      const { data, error } = await db.functions.invoke('employee-auth', {
+        body: { action: 'admin_login', email, pin }
+      });
+
+      if (error || data?.error || !data?.session || !data?.user_id) {
+        toast(data?.error || await functionErrorMessage(error, 'Nieprawidłowy e-mail lub PIN.'), 'error');
+        btn.disabled = false;
+        btn.textContent = 'Zaloguj';
+        return;
+      }
+
+      sessionStorage.setItem('rcp:admin-pin-ok', data.user_id);
+      const { error: sessionError } = await db.auth.setSession({
+        access_token: data.session.access_token,
+        refresh_token: data.session.refresh_token
+      });
+      if (sessionError) {
+        sessionStorage.removeItem('rcp:admin-pin-ok');
+        toast(sessionError.message, 'error');
+        btn.disabled = false;
+        btn.textContent = 'Zaloguj';
+        return;
+      }
+      loading();
+      await route();
+    });
+
+    document.getElementById('adminPinSetupBtn')?.addEventListener('click', async () => {
+      const email = document.getElementById('loginEmail').value.trim().toLowerCase();
+      if (!email) return toast('Najpierw wpisz adres e-mail administratora.', 'error');
+      const btn = document.getElementById('adminPinSetupBtn');
       btn.disabled = true;
       btn.textContent = 'Wysyłanie…';
-      const redirectTo = window.location.href.split('#')[0].split('?')[0];
-      const { error } = await db.auth.signInWithOtp({ email, options: { emailRedirectTo: redirectTo } });
+      const base = window.location.href.split('#')[0].split('?')[0];
+      const redirectTo = base + '?adminPinSetup=1';
+      const { error } = await db.auth.signInWithOtp({
+        email,
+        options: { emailRedirectTo: redirectTo, shouldCreateUser: false }
+      });
       if (error) {
         toast(error.message, 'error');
         btn.disabled = false;
-        btn.textContent = 'Wyślij link logowania';
+        btn.textContent = 'Ustaw / zresetuj PIN przez e-mail';
         return;
       }
-      renderLogin('Link logowania został wysłany. Otwórz wiadomość na tym urządzeniu i kliknij link.', 'admin');
+      renderLogin('Wysłaliśmy link na e-mail. Otwórz go na tym urządzeniu, aby ustawić nowy PIN.', 'admin');
+    });
+  }
+
+  function renderAdminPinSetup(message = '') {
+    clearTimer();
+    const email = state.user?.email || '';
+    $app.innerHTML = \`
+      <div class="shell">
+        <div class="login-wrap">
+          <div class="logo login-logo">RCP</div>
+          <div class="card">
+            <h2>PIN administratora</h2>
+            <p class="muted">Konto: <b>\${esc(email)}</b></p>
+            <p class="muted">\${esc(message || 'Ustaw 6-cyfrowy PIN. Od tej pory będziesz logować się e-mailem i PIN-em.')}</p>
+            <form id="adminPinSetForm">
+              <div class="field"><label for="newAdminPin">Nowy PIN</label><input id="newAdminPin" class="input" type="password" inputmode="numeric" autocomplete="new-password" pattern="[0-9]{6}" maxlength="6" placeholder="••••••" required /></div>
+              <div class="field"><label for="newAdminPin2">Powtórz PIN</label><input id="newAdminPin2" class="input" type="password" inputmode="numeric" autocomplete="new-password" pattern="[0-9]{6}" maxlength="6" placeholder="••••••" required /></div>
+              <button class="btn btn-dark btn-block" type="submit">Ustaw PIN</button>
+            </form>
+          </div>
+        </div>
+      </div>\`;
+
+    document.getElementById('adminPinSetForm').addEventListener('submit', async e => {
+      e.preventDefault();
+      const pin = document.getElementById('newAdminPin').value.trim();
+      const pin2 = document.getElementById('newAdminPin2').value.trim();
+      if (!/^\\d{6}$/.test(pin)) return toast('PIN musi mieć dokładnie 6 cyfr.', 'error');
+      if (pin !== pin2) return toast('Wpisane PIN-y są różne.', 'error');
+      const btn = e.currentTarget.querySelector('button');
+      btn.disabled = true;
+      btn.textContent = 'Zapisywanie…';
+      const { data, error } = await db.functions.invoke('employee-auth', {
+        body: { action: 'admin_set_pin', pin }
+      });
+      if (error || data?.error) {
+        toast(data?.error || await functionErrorMessage(error, 'Nie udało się ustawić PIN-u.'), 'error');
+        btn.disabled = false;
+        btn.textContent = 'Ustaw PIN';
+        return;
+      }
+      sessionStorage.removeItem('rcp:admin-pin-ok');
+      const cleanUrl = window.location.href.split('#')[0].split('?')[0];
+      history.replaceState({}, '', cleanUrl);
+      await db.auth.signOut();
+      renderLogin('PIN został ustawiony. Zaloguj się teraz e-mailem i PIN-em.', 'admin');
     });
   }
 
@@ -148,6 +241,11 @@
     source = source.replace(
       "    document.getElementById('addSessionBtn')?.addEventListener('click', openAddSession);\n",
       "    document.getElementById('addSessionBtn')?.addEventListener('click', openAddSession);\n    document.querySelectorAll('[data-credentials]').forEach(b => b.addEventListener('click', () => openEmployeeCredentials(b.dataset.credentials)));\n"
+    );
+
+    source = source.replace(
+      "  async function logout() {\n    await db.auth.signOut();",
+      "  async function logout() {\n    sessionStorage.removeItem('rcp:admin-pin-ok');\n    await db.auth.signOut();"
     );
 
     source = source.replace(
@@ -298,6 +396,50 @@
   function openRate(memberId) {`
     );
 
+    source = source.replace(
+      /  async function route\(\) \{[\s\S]*?\n  \}\n\n  db\.auth\.onAuthStateChange/,
+      `  async function route() {
+    loading();
+    try {
+      await loadIdentity();
+      if (!state.user) return renderLogin();
+
+      const hasAdminAccess = state.platformAdmin || state.memberships.some(m => m.role === 'admin');
+      if (hasAdminAccess) {
+        const { data: pinStatus, error: pinStatusError } = await db.functions.invoke('employee-auth', {
+          body: { action: 'admin_pin_status' }
+        });
+        if (pinStatusError || pinStatus?.error) {
+          throw new Error(pinStatus?.error || await functionErrorMessage(pinStatusError, 'Nie udało się sprawdzić zabezpieczenia PIN.'));
+        }
+
+        const setupRequested = new URLSearchParams(window.location.search).get('adminPinSetup') === '1';
+        if (setupRequested || !pinStatus?.configured) {
+          return renderAdminPinSetup(setupRequested
+            ? 'Potwierdziłeś adres e-mail. Ustaw teraz nowy 6-cyfrowy PIN administratora.'
+            : 'To konto nie ma jeszcze PIN-u administratora. Ustaw go teraz.');
+        }
+
+        if (sessionStorage.getItem('rcp:admin-pin-ok') !== state.user.id) {
+          return renderLogin('Potwierdź dostęp administracyjny e-mailem i PIN-em.', 'admin');
+        }
+      }
+
+      if (state.view === 'platform' && state.platformAdmin) {
+        await loadPlatformData();
+        return renderPlatform();
+      }
+      return await renderSelectedTenant();
+    } catch (err) {
+      console.error(err);
+      $app.innerHTML = \`<div class="shell"><div class="card"><h2>Błąd aplikacji</h2><div class="notice notice-error">\${esc(err?.message || 'Nie udało się pobrać danych.')}</div><button id="retryBtn" class="btn btn-dark" style="margin-top:12px">Spróbuj ponownie</button></div></div>\`;
+      document.getElementById('retryBtn').addEventListener('click', route);
+    }
+  }
+
+  db.auth.onAuthStateChange`
+    );
+
     return source;
   }
 
@@ -305,7 +447,7 @@
     if (!r.ok) throw new Error(`Nie udało się pobrać ${p}`);
     return r.text();
   }))).then(chunks => {
-    const source = patchEmployeeAuth(chunks.join(''));
+    const source = patchRcp(chunks.join(''));
     (0, eval)(source);
   }).catch(err => {
     console.error(err);
