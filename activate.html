@@ -1,0 +1,104 @@
+<!doctype html>
+<html lang="pl">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="theme-color" content="#111827" />
+  <link rel="icon" href="./icon.svg" type="image/svg+xml" />
+  <link rel="stylesheet" href="./styles.css" />
+  <title>RCP — aktywacja PIN-u administratora</title>
+</head>
+<body>
+  <div class="shell">
+    <div class="login-wrap">
+      <div class="logo login-logo">RCP</div>
+      <div class="card">
+        <h2>Aktywacja PIN-u administratora</h2>
+        <p class="muted">Jednorazowa aktywacja bez wysyłania wiadomości e-mail.</p>
+        <div id="notice"></div>
+        <form id="activateForm" autocomplete="off">
+          <div class="field">
+            <label for="email">E-mail administratora</label>
+            <input id="email" class="input" type="email" autocomplete="username" value="biuro@intevero.pl" required />
+          </div>
+          <div class="field">
+            <label for="code">Kod aktywacyjny</label>
+            <input id="code" class="input" type="text" autocapitalize="characters" spellcheck="false" placeholder="XXXXX-XXXXX" required />
+          </div>
+          <div class="field">
+            <label for="pin">Nowy PIN — 6 cyfr</label>
+            <input id="pin" class="input" type="password" inputmode="numeric" pattern="[0-9]{6}" maxlength="6" autocomplete="new-password" placeholder="••••••" required />
+          </div>
+          <div class="field">
+            <label for="pin2">Powtórz PIN</label>
+            <input id="pin2" class="input" type="password" inputmode="numeric" pattern="[0-9]{6}" maxlength="6" autocomplete="new-password" placeholder="••••••" required />
+          </div>
+          <button id="submitBtn" class="btn btn-dark btn-block" type="submit">Ustaw PIN</button>
+        </form>
+        <a id="backBtn" class="btn btn-light btn-block" href="./" style="display:none;margin-top:10px;text-decoration:none;text-align:center">Przejdź do logowania RCP</a>
+      </div>
+    </div>
+  </div>
+
+<script>
+(() => {
+  const BOOTSTRAP_URL = 'https://nouanhglqawrmvhlzrez.supabase.co/functions/v1/admin-bootstrap';
+  const LOGIN_URL = 'https://nouanhglqawrmvhlzrez.supabase.co/functions/v1/employee-auth';
+  const form = document.getElementById('activateForm');
+  const notice = document.getElementById('notice');
+  const submit = document.getElementById('submitBtn');
+  const back = document.getElementById('backBtn');
+
+  function show(message, type) {
+    notice.className = 'notice ' + (type === 'ok' ? 'notice-success' : type === 'info' ? 'notice-info' : 'notice-error');
+    notice.textContent = message;
+  }
+
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const email = document.getElementById('email').value.trim().toLowerCase();
+    const code = document.getElementById('code').value.trim();
+    const pin = document.getElementById('pin').value.trim();
+    const pin2 = document.getElementById('pin2').value.trim();
+
+    if (!/^\d{6}$/.test(pin)) return show('PIN musi mieć dokładnie 6 cyfr.', 'error');
+    if (pin !== pin2) return show('Wpisane PIN-y są różne.', 'error');
+
+    submit.disabled = true;
+    submit.textContent = 'Aktywacja…';
+    show('Ustawiam PIN…', 'info');
+
+    try {
+      await fetch(BOOTSTRAP_URL, {
+        method: 'POST',
+        mode: 'no-cors',
+        headers: { 'Content-Type': 'text/plain;charset=UTF-8' },
+        body: JSON.stringify({ email, code, pin })
+      });
+
+      await new Promise(resolve => setTimeout(resolve, 1200));
+
+      const verify = await fetch(LOGIN_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'admin_login', email, pin })
+      });
+      const data = await verify.json().catch(() => ({}));
+
+      if (!verify.ok || !data?.session) {
+        throw new Error(data?.error || 'Nie udało się potwierdzić aktywacji. Sprawdź kod i spróbuj ponownie.');
+      }
+
+      form.style.display = 'none';
+      back.style.display = 'block';
+      show('PIN został ustawiony. Możesz teraz zalogować się do RCP e-mailem i PIN-em.', 'ok');
+    } catch (err) {
+      show(err?.message || 'Aktywacja nie powiodła się.', 'error');
+      submit.disabled = false;
+      submit.textContent = 'Ustaw PIN';
+    }
+  });
+})();
+</script>
+</body>
+</html>
