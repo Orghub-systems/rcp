@@ -192,12 +192,66 @@
     if (pending?.sessionId) showCommentCard(pending.sessionId);
   }
 
-  let noteTimer = null;
-  async function decorateAdminNotes() {
-    const buttons = [...document.querySelectorAll('[data-edit-session]')];
-    if (!buttons.length) return;
+  function formatSessionLabel(row) {
+    const name = [row?.first_name, row?.last_name].filter(Boolean).join(' ').trim() || 'pracownika';
+    const start = row?.started_at ? new Date(row.started_at).toLocaleString('pl-PL') : '';
+    return start ? `${name} — ${start}` : name;
+  }
 
-    const ids = buttons.map(b => b.dataset.editSession).filter(Boolean);
+  async function deleteAdminSession(sessionId, button) {
+    if (!sessionId || button.disabled) return;
+    button.disabled = true;
+
+    try {
+      const rows = await request(
+        `work_sessions_with_earnings?select=id,first_name,last_name,started_at,ended_at&id=eq.${encodeURIComponent(sessionId)}&limit=1`
+      );
+      const row = Array.isArray(rows) ? rows[0] : null;
+      if (!row) throw new Error('Nie znaleziono wpisu czasu pracy.');
+
+      const openWarning = row.ended_at ? '' : '\n\nUWAGA: ten wpis jest nadal aktywny.';
+      const confirmed = window.confirm(
+        `Usunąć wpis czasu pracy?\n\n${formatSessionLabel(row)}${openWarning}\n\nTej operacji nie da się cofnąć.`
+      );
+      if (!confirmed) {
+        button.disabled = false;
+        return;
+      }
+
+      button.textContent = 'Usuwanie…';
+      await request(`work_sessions?id=eq.${encodeURIComponent(sessionId)}`, { method: 'DELETE' });
+      button.textContent = 'Usunięto';
+      setTimeout(() => window.location.reload(), 250);
+    } catch (err) {
+      button.disabled = false;
+      button.textContent = 'Usuń';
+      window.alert(err?.message || 'Nie udało się usunąć wpisu.');
+    }
+  }
+
+  let noteTimer = null;
+  async function decorateAdminRows() {
+    const editButtons = [...document.querySelectorAll('[data-edit-session]')];
+    if (!editButtons.length) return;
+
+    for (const editButton of editButtons) {
+      const id = editButton.dataset.editSession;
+      const actions = editButton.closest('.member-actions');
+      if (!id || !actions || actions.querySelector(`[data-delete-session="${id}"]`)) continue;
+
+      const del = document.createElement('button');
+      del.type = 'button';
+      del.className = 'mini-btn';
+      del.dataset.deleteSession = id;
+      del.textContent = 'Usuń';
+      del.style.marginLeft = '6px';
+      del.style.borderColor = '#dc2626';
+      del.style.color = '#b91c1c';
+      del.addEventListener('click', () => deleteAdminSession(id, del));
+      actions.appendChild(del);
+    }
+
+    const ids = editButtons.map(b => b.dataset.editSession).filter(Boolean);
     const undecorated = ids.filter(id => !document.querySelector(`[data-rcp-note-for="${id}"]`));
     if (!undecorated.length) return;
 
@@ -205,10 +259,10 @@
       const rows = await request(`work_sessions_with_earnings?select=id,note&id=in.(${undecorated.join(',')})`);
       const notes = new Map((Array.isArray(rows) ? rows : []).map(row => [row.id, row.note]));
 
-      for (const button of buttons) {
-        const id = button.dataset.editSession;
+      for (const editButton of editButtons) {
+        const id = editButton.dataset.editSession;
         if (!id || document.querySelector(`[data-rcp-note-for="${id}"]`)) continue;
-        const rowMain = button.closest('.row')?.querySelector('.row-main');
+        const rowMain = editButton.closest('.row')?.querySelector('.row-main');
         if (!rowMain) continue;
 
         const note = notes.get(id);
@@ -229,14 +283,14 @@
   const observer = new MutationObserver(() => {
     clearTimeout(noteTimer);
     noteTimer = setTimeout(() => {
-      decorateAdminNotes();
+      decorateAdminRows();
       restorePendingComment();
     }, 120);
   });
 
   observer.observe(document.documentElement, { childList: true, subtree: true });
   window.addEventListener('load', () => setTimeout(() => {
-    decorateAdminNotes();
+    decorateAdminRows();
     restorePendingComment();
   }, 500));
 })();
