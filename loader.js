@@ -141,6 +141,16 @@
     );
 
     source = source.replace(
+      '<button class="mini-btn" data-rate="${member.id}">Stawka</button><button class="mini-btn" data-toggle-member=',
+      '<button class="mini-btn" data-credentials="${member.id}">Dane logowania</button><button class="mini-btn" data-rate="${member.id}">Stawka</button><button class="mini-btn" data-toggle-member='
+    );
+
+    source = source.replace(
+      "    document.getElementById('addSessionBtn')?.addEventListener('click', openAddSession);\n",
+      "    document.getElementById('addSessionBtn')?.addEventListener('click', openAddSession);\n    document.querySelectorAll('[data-credentials]').forEach(b => b.addEventListener('click', () => openEmployeeCredentials(b.dataset.credentials)));\n"
+    );
+
+    source = source.replace(
       /  function openAddEmployee\(\) \{[\s\S]*?\n  \}\n\n  function openRate\(memberId\) \{/,
       `  function openAddEmployee() {
     const today = localDateKey(new Date());
@@ -153,7 +163,6 @@
       <div class="field"><label>Stawka obowiązuje od</label><input id="empRateFrom" class="input" type="date" value="\${today}"></div>
       <div class="field span-2"><div class="notice notice-info" style="margin-top:0">Pracownik nie podaje adresu e-mail. Do logowania dostaje kod firmy <b>\${esc(state.organization?.slug || '')}</b>, login i PIN.</div></div>
     </div>\`, 'Dodaj');
-
     save.addEventListener('click', async () => {
       const first_name = wrap.querySelector('#empFirst').value.trim();
       const last_name = wrap.querySelector('#empLast').value.trim() || null;
@@ -192,6 +201,97 @@
       toast(\`Pracownik dodany. Login: \${login}\`, 'success');
       await loadAdminData();
       renderAdmin();
+    });
+  }
+
+  function generateEmployeePin() {
+    const values = new Uint32Array(1);
+    crypto.getRandomValues(values);
+    return String(values[0] % 1000000).padStart(6, '0');
+  }
+
+  async function copyRcpText(text) {
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(text);
+      return;
+    }
+    const area = document.createElement('textarea');
+    area.value = text;
+    area.style.position = 'fixed';
+    area.style.opacity = '0';
+    document.body.appendChild(area);
+    area.focus();
+    area.select();
+    document.execCommand('copy');
+    area.remove();
+  }
+
+  function employeeLoginInstruction(member, pin) {
+    const company = state.organization?.slug || '';
+    return [
+      'RCP – rejestracja czasu pracy',
+      '',
+      'Wejdź na: https://rcp.orghub.pl',
+      '',
+      'Dane logowania:',
+      'Kod firmy: ' + company,
+      'Login: ' + member.employee_login,
+      'PIN: ' + pin,
+      '',
+      'Instalacja aplikacji:',
+      'Android / Chrome: menu ⋮ → Zainstaluj aplikację lub Dodaj do ekranu głównego.',
+      'iPhone / Safari: Udostępnij → Do ekranu początkowego → Dodaj.',
+      '',
+      'Po uruchomieniu wybierz „Pracownik” i wpisz powyższe dane.'
+    ].join('\\n');
+  }
+
+  function openEmployeeCredentials(memberId) {
+    const member = state.members.find(m => m.id === memberId);
+    if (!member) return;
+    if (!member.employee_login) return toast('Ten pracownik nie ma jeszcze loginu RCP.', 'error');
+
+    const company = state.organization?.slug || '';
+    const pin = generateEmployeePin();
+    const fullName = [member.first_name, member.last_name].filter(Boolean).join(' ');
+    const body = '<div class="form-grid">' +
+      '<div class="field"><label>Kod firmy</label><input class="input" value="' + esc(company) + '" readonly></div>' +
+      '<div class="field"><label>Login</label><input class="input" value="' + esc(member.employee_login) + '" readonly></div>' +
+      '<div class="field"><label>Nowy PIN — 6 cyfr</label><input id="sharePin" class="input" inputmode="numeric" pattern="[0-9]{6}" maxlength="6" value="' + esc(pin) + '" required></div>' +
+      '<div class="field" style="display:flex;align-items:end"><button id="generateSharePin" class="btn btn-light btn-block" type="button">Generuj inny PIN</button></div>' +
+      '<div class="field span-2"><div class="notice notice-info" style="margin-top:0">Obecnego PIN-u nie można odczytać. Kliknięcie <b>Ustaw PIN i kopiuj</b> ustawi PIN z pola powyżej i skopiuje gotową instrukcję dla pracownika.</div></div>' +
+      '</div>';
+
+    const { wrap, save } = dialog('Dane logowania — ' + fullName, body, 'Ustaw PIN i kopiuj');
+    const pinInput = wrap.querySelector('#sharePin');
+    wrap.querySelector('#generateSharePin').addEventListener('click', () => { pinInput.value = generateEmployeePin(); });
+
+    save.addEventListener('click', async () => {
+      const newPin = pinInput.value.trim();
+      if (!/^\\d{6}$/.test(newPin)) return toast('PIN musi mieć dokładnie 6 cyfr.', 'error');
+      save.disabled = true;
+      const { data, error } = await db.functions.invoke('employee-auth', {
+        body: {
+          action: 'reset_pin',
+          organization_id: state.membership.organization_id,
+          member_id: member.id,
+          pin: newPin
+        }
+      });
+      if (error || data?.error) {
+        toast(data?.error || await functionErrorMessage(error, 'Nie udało się ustawić PIN-u.'), 'error');
+        save.disabled = false;
+        return;
+      }
+      try {
+        await copyRcpText(employeeLoginInstruction(member, newPin));
+      } catch (_) {
+        toast('PIN został ustawiony, ale przeglądarka nie pozwoliła skopiować tekstu.', 'error');
+        save.disabled = false;
+        return;
+      }
+      wrap.remove();
+      toast('Nowy PIN ustawiony. Instrukcja została skopiowana.', 'success');
     });
   }
 
