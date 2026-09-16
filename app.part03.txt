@@ -1,0 +1,140 @@
+le === 'employee');
+    return `<div class="card">
+      <div class="section-head"><div><h3>Zespół</h3><div class="muted small">Dodawaj pracowników i stawki godzinowe tylko w tej firmie.</div></div><button id="addEmployeeBtn" class="btn btn-dark">+ Pracownik</button></div>
+      <div class="list">${employees.length ? employees.map(member => {
+        const cur = memberCurrent(member.id);
+        const total = memberMonth(member.id);
+        const rate = state.rates.find(r => r.member_id === member.id);
+        return `<div class="row">
+          <div class="row-main"><div class="row-title">${esc(member.first_name)} ${esc(member.last_name || '')}</div><div class="row-sub">${esc(member.login_email || 'brak e-maila')} · ${rate ? fmtMoney(rate.hourly_rate) + '/h' : 'brak stawki'} · ${member.active ? 'aktywny' : 'nieaktywny'}</div><div class="row-sub">Miesiąc: ${hhmm(total.minutes)} · ${fmtMoney(total.earnings)}</div></div>
+          <div><div class="member-status" style="color:${cur ? 'var(--green)' : 'var(--muted)'}"><span class="dot"></span>${cur ? 'PRACUJE' : 'NIE PRACUJE'}</div><div class="member-actions" style="margin-top:8px"><button class="mini-btn" data-rate="${member.id}">Stawka</button><button class="mini-btn" data-toggle-member="${member.id}" data-active="${member.active}">${member.active ? 'Dezaktywuj' : 'Aktywuj'}</button></div></div>
+        </div>`;
+      }).join('') : '<div class="muted small">Nie dodano jeszcze pracowników.</div>'}</div>
+    </div>`;
+  }
+
+  function adminTimeContent() {
+    const sessions = state.adminSessions.slice(0, 80);
+    return `<div class="card">
+      <div class="section-head"><div><h3>Czas pracy</h3><div class="muted small">Administrator może poprawić godziny. Zmiany trafiają do audytu.</div></div><button id="addSessionBtn" class="btn btn-dark">+ Wpis</button></div>
+      <div class="list">${sessions.length ? sessions.map(s => `<div class="row"><div class="row-main"><div class="row-title">${esc(s.first_name)} ${esc(s.last_name || '')}</div><div class="row-sub">${fmtDateTime(s.started_at)} → ${s.ended_at ? fmtDateTime(s.ended_at) : '<b>trwa</b>'}</div><div class="row-sub">${hhmm(s.duration_minutes)} · ${fmtMoney(s.earnings)}</div></div><div class="member-actions"><button class="mini-btn" data-edit-session="${s.id}">Edytuj</button></div></div>`).join('') : '<div class="muted small">Brak wpisów w tym miesiącu.</div>'}</div>
+    </div>`;
+  }
+
+  async function loadPlatformData() {
+    const { data, error } = await db.rpc('platform_list_organizations');
+    if (error) throw error;
+    state.platformOrganizations = data || [];
+  }
+
+  function renderPlatform() {
+    clearTimer();
+    const list = state.platformOrganizations;
+    $app.innerHTML = `<div class="shell">
+      ${topbar('Właściciel platformy · wszystkie podmioty')}
+      <div class="card">
+        <div class="section-head"><div><h3>Firmy</h3><div class="muted small">Jedna aplikacja, osobne dane i uprawnienia dla każdego podmiotu.</div></div><button id="addOrganizationBtn" class="btn btn-dark">+ Firma</button></div>
+        <div class="list">${list.length ? list.map(org => {
+          const membership = state.memberships.find(m => m.organization_id === org.id);
+          return `<div class="row"><div class="row-main"><div class="row-title">${esc(org.name)}</div><div class="row-sub">${esc(org.slug)} · ${esc(org.timezone)} · pracownicy: ${org.employees_count} · administratorzy: ${org.admins_count}</div></div><div class="member-actions">${membership ? `<button class="mini-btn" data-open-org="${membership.id}">Otwórz</button>` : ''}</div></div>`;
+        }).join('') : '<div class="muted small">Nie utworzono jeszcze żadnej firmy.</div>'}</div>
+      </div>
+    </div>`;
+    bindTopbar();
+    document.getElementById('addOrganizationBtn').addEventListener('click', openAddOrganization);
+    document.querySelectorAll('[data-open-org]').forEach(b => b.addEventListener('click', () => selectMembership(b.dataset.openOrg)));
+  }
+
+  function bindAdminActions() {
+    document.getElementById('addEmployeeBtn')?.addEventListener('click', openAddEmployee);
+    document.getElementById('addSessionBtn')?.addEventListener('click', openAddSession);
+    document.querySelectorAll('[data-rate]').forEach(b => b.addEventListener('click', () => openRate(b.dataset.rate)));
+    document.querySelectorAll('[data-toggle-member]').forEach(b => b.addEventListener('click', () => toggleMember(b.dataset.toggleMember, b.dataset.active === 'true')));
+    document.querySelectorAll('[data-edit-session]').forEach(b => b.addEventListener('click', () => openEditSession(b.dataset.editSession)));
+  }
+
+  function dialog(title, body, saveLabel = 'Zapisz') {
+    const wrap = document.createElement('div');
+    wrap.className = 'dialog-backdrop';
+    wrap.innerHTML = `<div class="dialog"><h3>${esc(title)}</h3><div>${body}</div><div class="dialog-actions"><button class="btn btn-light" data-cancel>Anuluj</button><button class="btn btn-dark" data-save>${esc(saveLabel)}</button></div></div>`;
+    document.body.appendChild(wrap);
+    wrap.querySelector('[data-cancel]').addEventListener('click', () => wrap.remove());
+    wrap.addEventListener('click', e => { if (e.target === wrap) wrap.remove(); });
+    return { wrap, save: wrap.querySelector('[data-save]') };
+  }
+
+  function slugify(value) {
+    return String(value || '')
+      .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+      .toLowerCase().trim()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-+|-+$/g, '');
+  }
+
+  function openAddOrganization() {
+    const { wrap, save } = dialog('Dodaj firmę', `<div class="form-grid">
+      <div class="field"><label>Nazwa firmy</label><input id="orgName" class="input" required></div>
+      <div class="field"><label>Identyfikator</label><input id="orgSlug" class="input" required placeholder="np. intevero"></div>
+      <div class="field span-2"><label>Strefa czasowa</label><input id="orgTimezone" class="input" value="Europe/Warsaw" required></div>
+      <div class="field"><label>Imię administratora</label><input id="orgAdminFirst" class="input" required></div>
+      <div class="field"><label>Nazwisko administratora</label><input id="orgAdminLast" class="input"></div>
+      <div class="field span-2"><label>E-mail administratora</label><input id="orgAdminEmail" class="input" type="email" required></div>
+    </div>`, 'Utwórz firmę');
+
+    const nameInput = wrap.querySelector('#orgName');
+    const slugInput = wrap.querySelector('#orgSlug');
+    let slugTouched = false;
+    slugInput.addEventListener('input', () => { slugTouched = true; });
+    nameInput.addEventListener('input', () => { if (!slugTouched) slugInput.value = slugify(nameInput.value); });
+
+    save.addEventListener('click', async () => {
+      const p_name = nameInput.value.trim();
+      const p_slug = slugInput.value.trim().toLowerCase();
+      const p_timezone = wrap.querySelector('#orgTimezone').value.trim();
+      const p_admin_first_name = wrap.querySelector('#orgAdminFirst').value.trim();
+      const p_admin_last_name = wrap.querySelector('#orgAdminLast').value.trim();
+      const p_admin_email = wrap.querySelector('#orgAdminEmail').value.trim().toLowerCase();
+      if (!p_name || !p_slug || !p_admin_first_name || !p_admin_email) return toast('Uzupełnij nazwę, identyfikator i dane administratora.', 'error');
+      save.disabled = true;
+      const { error } = await db.rpc('platform_create_organization', { p_name, p_slug, p_admin_first_name, p_admin_last_name, p_admin_email, p_timezone });
+      if (error) { toast(error.message, 'error'); save.disabled = false; return; }
+      wrap.remove();
+      toast('Firma utworzona.', 'success');
+      await loadIdentity();
+      state.view = 'platform';
+      localStorage.setItem('rcp:view', 'platform');
+      await loadPlatformData();
+      renderPlatform();
+    });
+  }
+
+  function openAddEmployee() {
+    const { wrap, save } = dialog('Dodaj pracownika', `<div class="form-grid">
+      <div class="field"><label>Imię</label><input id="empFirst" class="input" required></div>
+      <div class="field"><label>Nazwisko</label><input id="empLast" class="input"></div>
+      <div class="field span-2"><label>E-mail logowania</label><input id="empEmail" class="input" type="email" required placeholder="pracownik@firma.pl"></div>
+    </div>`, 'Dodaj');
+    save.addEventListener('click', async () => {
+      const first_name = wrap.querySelector('#empFirst').value.trim();
+      const last_name = wrap.querySelector('#empLast').value.trim() || null;
+      const login_email = wrap.querySelector('#empEmail').value.trim().toLowerCase();
+      if (!first_name || !login_email) return toast('Podaj imię i e-mail.', 'error');
+      save.disabled = true;
+      const { error } = await db.from('organization_members').insert({ organization_id: state.membership.organization_id, first_name, last_name, login_email, role: 'employee', active: true });
+      if (error) { toast(error.message, 'error'); save.disabled = false; return; }
+      wrap.remove(); toast('Pracownik dodany.', 'success'); await loadAdminData(); renderAdmin();
+    });
+  }
+
+  function openRate(memberId) {
+    const member = state.members.find(m => m.id === memberId);
+    const last = state.rates.find(r => r.member_id === memberId);
+    const today = localDateKey(new Date());
+    const { wrap, save } = dialog(`Stawka — ${member?.first_name || ''}`, `<div class="form-grid">
+      <div class="field"><label>Stawka brutto / godz.</label><input id="rateValue" class="input" type="number" min="0" step="0.01" value="${last?.hourly_rate ?? ''}" required></div>
+      <div class="field"><label>Obowiązuje od</label><input id="rateFrom" class="input" type="date" value="${today}" required></div>
+    </div>`);
+    save.addEventListener('click', async () => {
+      const hourly_rate = Number(wrap.querySelector('#rateValue').value);
+      const valid_from = wrap.querySelector('#rateFrom').value;
+      if (!Number.isFinite(hourly_rate) || hourly_rate 
