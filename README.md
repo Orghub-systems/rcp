@@ -26,6 +26,18 @@ Jedna aplikacja RCP obsługująca wiele niezależnych firm w projekcie Supabase 
 - audyt zmian po stronie bazy,
 - PWA: manifest + service worker + ikony.
 
+## Hosting produkcyjny
+
+Pliki statyczne są publikowane przez GitHub Pages pod adresem technicznym:
+
+`https://orghub-systems.github.io/rcp/`
+
+Adres użytkowy:
+
+`https://rcp.orghub.pl`
+
+Subdomena `rcp` jest zarezerwowana jako systemowa w Workerze ORG HUB i nie może zostać potraktowana jako `clubId`. Produkcyjny Worker przechwytuje `rcp.orghub.pl` przed logiką klubów i proxy'uje pliki z GitHub Pages. Repozytorium RCP nie używa pliku `CNAME`, aby uniknąć przekierowania GitHub Pages z adresu technicznego z powrotem na `rcp.orghub.pl`.
+
 ## Uruchomienie lokalne
 
 Aplikacja musi być serwowana przez HTTP(S), nie `file://`.
@@ -39,6 +51,7 @@ Następnie otwórz `http://localhost:8080`.
 ## Auth redirect
 
 W Supabase dodaj adres aplikacji do `Authentication > URL Configuration > Redirect URLs`.
+Dla produkcji: `https://rcp.orghub.pl/**`.
 Dla testu lokalnego: `http://localhost:8080/**`.
 
 Frontend zawiera wyłącznie klucz `sb_publishable_...`. Sekret / `service_role` nie może trafić do plików publicznych.
@@ -46,7 +59,6 @@ Frontend zawiera wyłącznie klucz `sb_publishable_...`. Sekret / `service_role`
 ## Następny etap
 
 - Web Push dla administratorów,
-- hosting HTTPS i domena,
 - testy dwóch firm + użytkownika należącego do obu,
 - raporty miesięczne / eksport XLSX i PDF,
 - opcjonalnie abonamenty i limity per firma.
