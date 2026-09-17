@@ -8,6 +8,7 @@
   const authStorageKey = `sb-${projectRef}-auth-token`;
   const pendingKey = 'rcp:pending-work-comment-v1';
   const maxCommentLength = 200;
+  const gpsTasks = new Map();
 
   function readSession() {
     const keys = [authStorageKey, ...Object.keys(localStorage).filter(k => k.includes(projectRef) && k.includes('auth-token'))];
@@ -98,6 +99,84 @@
     localStorage.removeItem(pendingKey);
   }
 
+  function captureStopLocation() {
+    if (!('geolocation' in navigator)) {
+      return Promise.resolve({ status: 'unsupported' });
+    }
+
+    return new Promise(resolve => {
+      navigator.geolocation.getCurrentPosition(
+        position => {
+          const latitude = Number(position.coords.latitude);
+          const longitude = Number(position.coords.longitude);
+          const accuracy = Number(position.coords.accuracy);
+          if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) {
+            resolve({ status: 'error' });
+            return;
+          }
+          resolve({
+            status: 'captured',
+            latitude,
+            longitude,
+            accuracy: Number.isFinite(accuracy) ? accuracy : null
+          });
+        },
+        error => {
+          const status = error?.code === 1
+            ? 'denied'
+            : error?.code === 2
+              ? 'unavailable'
+              : error?.code === 3
+                ? 'timeout'
+                : 'error';
+          resolve({ status });
+        },
+        {
+          enableHighAccuracy: true,
+          timeout: 10000,
+          maximumAge: 0
+        }
+      );
+    });
+  }
+
+  function gpsStatusText(status) {
+    if (status === 'captured') return 'Pozycja GPS została zapisana.';
+    if (status === 'denied') return 'Pozycja GPS nie została zapisana — brak zgody na lokalizację.';
+    if (status === 'unavailable') return 'Pozycja GPS nie została zapisana — lokalizacja jest niedostępna.';
+    if (status === 'timeout') return 'Pozycja GPS nie została zapisana — telefon nie ustalił pozycji na czas.';
+    if (status === 'unsupported') return 'Pozycja GPS nie została zapisana — urządzenie nie udostępnia lokalizacji.';
+    if (status === 'error') return 'Pozycja GPS nie została zapisana.';
+    return 'Ustalanie pozycji GPS…';
+  }
+
+  function updateGpsStatus(status) {
+    const el = document.getElementById('rcpGpsStatus');
+    if (!el) return;
+    el.textContent = gpsStatusText(status);
+    el.className = status === 'captured' ? 'notice notice-info' : 'small muted';
+    el.style.marginTop = '10px';
+  }
+
+  async function saveStopLocation(sessionId, locationPromise) {
+    let location = { status: 'error' };
+    try {
+      location = await locationPromise;
+      await rpc('save_stop_location', {
+        p_session_id: sessionId,
+        p_status: location.status,
+        p_latitude: location.status === 'captured' ? location.latitude : null,
+        p_longitude: location.status === 'captured' ? location.longitude : null,
+        p_accuracy_m: location.status === 'captured' ? location.accuracy : null
+      });
+    } catch (err) {
+      console.warn('Nie udało się zapisać GPS końca pracy:', err);
+      location = { status: 'error' };
+    }
+    updateGpsStatus(location.status);
+    return location;
+  }
+
   function showCommentCard(sessionId) {
     if (!sessionId || document.getElementById('rcpEndComment')) return;
 
@@ -113,6 +192,7 @@
           <textarea id="rcpWorkComment" class="input" maxlength="${maxCommentLength}" rows="4" placeholder="np. Sosnowiec — serwis kotłowni" style="resize:vertical;min-height:100px"></textarea>
           <div class="small muted" style="text-align:right;margin-top:6px"><span id="rcpCommentCount">0</span>/${maxCommentLength}</div>
         </div>
+        <div id="rcpGpsStatus" class="small muted" style="margin-top:10px">Ustalanie pozycji GPS…</div>
         <div id="rcpCommentError" class="notice notice-error" style="display:none"></div>
         <button id="rcpCommentSend" class="btn btn-dark btn-block" type="button">Wyślij</button>
       </div>`;
@@ -145,6 +225,12 @@
       send.textContent = 'Wysyłanie…';
       try {
         await rpc('save_work_comment', { p_session_id: sessionId, p_comment: comment });
+        const gpsTask = gpsTasks.get(sessionId);
+        if (gpsTask) {
+          send.textContent = 'Zapisywanie GPS…';
+          await gpsTask.catch(() => undefined);
+          gpsTasks.delete(sessionId);
+        }
         clearPending();
         send.textContent = 'Wysłano';
         setTimeout(() => window.location.reload(), 350);
@@ -162,6 +248,9 @@
     const oldText = button.textContent;
     button.textContent = 'KOŃCZĘ…';
 
+    // Uruchamiamy lokalizację natychmiast po kliknięciu, ale nie opóźniamy serwerowego STOP-u.
+    const locationPromise = captureStopLocation();
+
     try {
       const memberId = await resolveCurrentMembershipId();
       const result = unwrapSession(await rpc('stop_work', { p_member_id: memberId }));
@@ -170,6 +259,12 @@
 
       savePending(sessionId, memberId);
       showCommentCard(sessionId);
+
+      const gpsTask = saveStopLocation(sessionId, locationPromise);
+      gpsTasks.set(sessionId, gpsTask);
+      gpsTask.finally(() => {
+        if (gpsTasks.get(sessionId) === gpsTask) gpsTasks.delete(sessionId);
+      });
     } catch (err) {
       button.disabled = false;
       button.textContent = oldText;
@@ -189,7 +284,10 @@
 
   function restorePendingComment() {
     const pending = readPending();
-    if (pending?.sessionId) showCommentCard(pending.sessionId);
+    if (pending?.sessionId) {
+      showCommentCard(pending.sessionId);
+      updateGpsStatus('error');
+    }
   }
 
   function formatSessionLabel(row) {
@@ -229,6 +327,39 @@
     }
   }
 
+  function escHtml(value) {
+    return String(value ?? '').replace(/[&<>"']/g, ch => ({
+      '&': '&amp;',
+      '<': '&lt;',
+      '>': '&gt;',
+      '"': '&quot;',
+      "'": '&#39;'
+    }[ch]));
+  }
+
+  function gpsAdminHtml(row) {
+    const status = row?.stop_location_status;
+    if (!status) return '';
+
+    if (status === 'captured' && Number.isFinite(Number(row.stop_latitude)) && Number.isFinite(Number(row.stop_longitude))) {
+      const lat = Number(row.stop_latitude);
+      const lon = Number(row.stop_longitude);
+      const accuracy = Number(row.stop_accuracy_m);
+      const accuracyText = Number.isFinite(accuracy) ? ` · dokładność ±${Math.round(accuracy)} m` : '';
+      const mapUrl = `https://www.google.com/maps?q=${encodeURIComponent(`${lat},${lon}`)}`;
+      return `<div><b>GPS końca:</b> ${lat.toFixed(6)}, ${lon.toFixed(6)}${accuracyText} · <a href="${mapUrl}" target="_blank" rel="noopener noreferrer">Mapa</a></div>`;
+    }
+
+    const labels = {
+      denied: 'brak zgody na lokalizację',
+      unavailable: 'lokalizacja niedostępna',
+      timeout: 'nie udało się ustalić pozycji na czas',
+      unsupported: 'urządzenie nie obsługuje lokalizacji',
+      error: 'nie udało się zapisać lokalizacji'
+    };
+    return `<div><b>GPS końca:</b> ${escHtml(labels[status] || status)}</div>`;
+  }
+
   let noteTimer = null;
   async function decorateAdminRows() {
     const editButtons = [...document.querySelectorAll('[data-edit-session]')];
@@ -252,31 +383,36 @@
     }
 
     const ids = editButtons.map(b => b.dataset.editSession).filter(Boolean);
-    const undecorated = ids.filter(id => !document.querySelector(`[data-rcp-note-for="${id}"]`));
+    const undecorated = ids.filter(id => !document.querySelector(`[data-rcp-meta-for="${id}"]`));
     if (!undecorated.length) return;
 
     try {
-      const rows = await request(`work_sessions_with_earnings?select=id,note&id=in.(${undecorated.join(',')})`);
-      const notes = new Map((Array.isArray(rows) ? rows : []).map(row => [row.id, row.note]));
+      const rows = await request(
+        `work_sessions?select=id,note,stop_latitude,stop_longitude,stop_accuracy_m,stop_location_status,stop_location_at&id=in.(${undecorated.join(',')})`
+      );
+      const details = new Map((Array.isArray(rows) ? rows : []).map(row => [row.id, row]));
 
       for (const editButton of editButtons) {
         const id = editButton.dataset.editSession;
-        if (!id || document.querySelector(`[data-rcp-note-for="${id}"]`)) continue;
+        if (!id || document.querySelector(`[data-rcp-meta-for="${id}"]`)) continue;
         const rowMain = editButton.closest('.row')?.querySelector('.row-main');
         if (!rowMain) continue;
 
-        const note = notes.get(id);
+        const row = details.get(id) || {};
+        const parts = [];
+        if (row.note) parts.push(`<div><b>Komentarz:</b> ${escHtml(row.note)}</div>`);
+        const gps = gpsAdminHtml(row);
+        if (gps) parts.push(gps);
+
         const marker = document.createElement('div');
-        marker.dataset.rcpNoteFor = id;
+        marker.dataset.rcpMetaFor = id;
         marker.className = 'row-sub';
         marker.style.marginTop = '5px';
-        marker.innerHTML = note
-          ? `<b>Komentarz:</b> ${String(note).replace(/[&<>"']/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]))}`
-          : '';
+        marker.innerHTML = parts.join('');
         rowMain.appendChild(marker);
       }
     } catch (_) {
-      // Lista czasu nadal działa nawet gdy komentarzy chwilowo nie uda się dociągnąć.
+      // Lista czasu nadal działa nawet gdy komentarzy/GPS chwilowo nie uda się dociągnąć.
     }
   }
 
