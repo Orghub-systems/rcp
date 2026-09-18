@@ -65,6 +65,7 @@
           Range: `${from}-${from + pageSize - 1}`
         }
       });
+      if (res.status === 416) break;
       const page = await res.json().catch(() => null);
       if (!res.ok) {
         throw new Error(page?.message || page?.details || page?.hint || page?.code || `Błąd ${res.status}`);
