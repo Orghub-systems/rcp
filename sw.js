@@ -1,10 +1,11 @@
-const CACHE = 'rcp-shell-v11';
+const CACHE = 'rcp-shell-v12';
 const SHELL = [
   './',
   './index.html',
   './styles.css',
   './loader.js',
   './comments.js',
+  './vacation.js',
   './app.part01.txt',
   './app.part02.txt',
   './app.part03.txt',
