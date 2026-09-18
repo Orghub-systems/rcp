@@ -6,6 +6,7 @@ const SHELL = [
   './loader.js',
   './comments.js',
   './vacation.js',
+  './stats.js',
   './app.part01.txt',
   './app.part02.txt',
   './app.part03.txt',
