@@ -362,6 +362,10 @@
     statsState.view = 'month';
     statsState.year = year;
     statsState.month = month;
+    statsState.screen.dataset.statsYear = String(year);
+    statsState.screen.dataset.statsMonth = String(month);
+    statsState.screen.dataset.statsFilterMemberId = statsState.filterMemberId || '';
+    statsState.screen.dataset.statsViewerRole = statsState.ctx.membership.role;
 
     const list = monthSessions(year, month);
     const summary = monthSummary(list);
@@ -472,6 +476,9 @@
         </div>
         <div id="rcpStatsDayContent">${sessions.length ? '<div class="spinner"></div>' : ''}</div>
       </div>`;
+    wrap.dataset.dayKey = dayKey;
+    wrap.dataset.statsFilterMemberId = statsState.filterMemberId || '';
+    wrap.dataset.statsViewerRole = statsState.ctx.membership.role;
     document.body.appendChild(wrap);
 
     const close = () => wrap.remove();
