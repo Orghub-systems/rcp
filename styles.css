@@ -109,3 +109,62 @@ button { touch-action: manipulation; }
   .top-actions .btn { padding: 9px 10px; font-size: 12px; }
   .org-switcher { max-width: 58vw; }
 }
+
+
+/* RCP — statystyki czasu pracy */
+body.rcp-stats-open { overflow: hidden; }
+.rcp-stats-launch { min-height: 64px; font-size: 17px; font-weight: 850; display: flex; align-items: center; justify-content: center; gap: 10px; }
+.rcp-stats-screen { position: fixed; inset: 0; z-index: 1000; background: var(--bg); overflow: auto; -webkit-overflow-scrolling: touch; }
+.rcp-stats-shell { width: min(780px, 100%); min-height: 100dvh; margin: 0 auto; padding: 16px 14px 34px; }
+.rcp-stats-head { position: sticky; top: 0; z-index: 4; display: grid; grid-template-columns: 46px 1fr; gap: 10px; align-items: center; margin: -16px -14px 16px; padding: 16px 14px 12px; background: color-mix(in srgb, var(--bg) 94%, transparent); backdrop-filter: blur(12px); }
+.rcp-stats-back { width: 44px; height: 44px; border: 1px solid var(--line); background: #fff; border-radius: 14px; font-size: 25px; line-height: 1; cursor: pointer; }
+.rcp-stats-title { font-size: clamp(30px, 8vw, 44px); font-weight: 900; letter-spacing: -1.3px; line-height: 1.05; }
+.rcp-stats-subtitle { margin-top: 5px; color: var(--muted); font-size: 13px; font-weight: 650; }
+.rcp-stats-filter { margin-bottom: 18px; }
+.rcp-stats-filter label { display: block; margin-bottom: 7px; color: #374151; font-size: 13px; font-weight: 800; }
+.rcp-year-section { margin: 0 0 28px; }
+.rcp-year-section h2 { margin: 0 0 12px; font-size: 25px; }
+.rcp-month-list { display: grid; gap: 10px; }
+.rcp-month-card { width: 100%; display: grid; grid-template-columns: minmax(0,1fr) auto; gap: 10px; align-items: center; text-align: left; border: 1px solid var(--line); border-radius: 17px; background: #fff; padding: 17px 16px; box-shadow: 0 7px 20px rgba(17,24,39,.04); cursor: pointer; color: var(--dark); }
+.rcp-month-card:active { transform: scale(.992); }
+.rcp-month-main { display: flex; align-items: center; min-width: 0; gap: 9px; font-size: 20px; }
+.rcp-month-icon { flex: 0 0 auto; }
+.rcp-month-meta { text-align: right; color: var(--muted); font-size: 13px; font-weight: 800; white-space: nowrap; }
+.rcp-calendar-card { background: #fff; border: 1px solid var(--line); border-radius: 20px; padding: 18px 12px 16px; box-shadow: var(--shadow); }
+.rcp-calendar-weekdays, .rcp-calendar-grid { display: grid; grid-template-columns: repeat(7, minmax(0,1fr)); }
+.rcp-calendar-weekdays { margin-bottom: 8px; color: var(--muted); font-size: 12px; font-weight: 850; text-align: center; }
+.rcp-calendar-weekdays > div { padding: 5px 0; }
+.rcp-calendar-grid { row-gap: 9px; }
+.rcp-cal-empty { min-height: 52px; }
+.rcp-cal-day { position: relative; aspect-ratio: 1; width: min(52px, 11.6vw); max-width: 52px; justify-self: center; border: 0; background: transparent; border-radius: 50%; color: var(--dark); font-weight: 850; font-size: 18px; cursor: pointer; display: grid; place-items: center; }
+.rcp-cal-day span { position: relative; z-index: 1; }
+.rcp-cal-day small { position: absolute; right: -1px; top: -1px; min-width: 17px; height: 17px; padding: 0 4px; display: grid; place-items: center; border-radius: 999px; background: var(--dark); color: #fff; font-size: 9px; font-weight: 900; }
+.rcp-cal-worked { border: 3px solid var(--green); background: var(--green-soft); color: #105e37; }
+.rcp-cal-today { border: 3px solid var(--blue); background: #eef4ff; color: #174d93; }
+.rcp-cal-worked.rcp-cal-today { border-color: var(--green); box-shadow: 0 0 0 3px #fff, 0 0 0 6px var(--blue); }
+.rcp-calendar-summary { margin-top: 18px; display: grid; gap: 7px; border-radius: 16px; background: #f8fafc; padding: 14px; text-align: center; font-size: 15px; }
+.rcp-stats-bottom-back { margin-top: 14px; }
+.rcp-stats-day-backdrop { z-index: 1200; }
+.rcp-stats-day-dialog { max-width: 650px; }
+.rcp-day-summary { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 9px; margin: 12px 0; }
+.rcp-day-summary > div { display: grid; gap: 5px; padding: 12px; border: 1px solid var(--line); border-radius: 14px; background: #f8fafc; }
+.rcp-day-summary span { color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: .35px; }
+.rcp-day-summary b { font-size: 18px; }
+.rcp-day-entry-list { display: grid; gap: 10px; }
+.rcp-day-entry { border: 1px solid var(--line); border-radius: 16px; padding: 14px; background: #fff; }
+.rcp-detail-person { margin-bottom: 9px; font-size: 17px; font-weight: 900; }
+.rcp-detail-grid { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 7px 12px; font-size: 13px; }
+.rcp-detail-comment, .rcp-detail-gps { margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--line); font-size: 13px; line-height: 1.45; overflow-wrap: anywhere; }
+.rcp-detail-gps a { color: var(--blue); font-weight: 800; }
+.rcp-live { color: var(--green); font-weight: 900; }
+
+@media (max-width: 560px) {
+  .rcp-stats-shell { padding-left: 12px; padding-right: 12px; }
+  .rcp-stats-head { margin-left: -12px; margin-right: -12px; padding-left: 12px; padding-right: 12px; }
+  .rcp-month-card { grid-template-columns: 1fr; gap: 6px; }
+  .rcp-month-meta { text-align: left; padding-left: 33px; }
+  .rcp-calendar-card { padding-left: 8px; padding-right: 8px; }
+  .rcp-cal-empty { min-height: 46px; }
+  .rcp-cal-day { width: min(46px, 11.5vw); max-width: 46px; font-size: 16px; }
+  .rcp-detail-grid { grid-template-columns: 1fr; }
+}
