@@ -1,4 +1,4 @@
-const CACHE = 'rcp-shell-v12';
+const CACHE = 'rcp-shell-v13';
 const SHELL = [
   './',
   './index.html',
