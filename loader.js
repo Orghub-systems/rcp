@@ -106,7 +106,7 @@
         return;
       }
 
-      sessionStorage.removeItem('rcp:admin-pin-ok');
+      localStorage.removeItem('rcp:admin-pin-ok');
       const { error: sessionError } = await db.auth.setSession({
         access_token: data.session.access_token,
         refresh_token: data.session.refresh_token
@@ -141,13 +141,13 @@
         return;
       }
 
-      sessionStorage.setItem('rcp:admin-pin-ok', data.user_id);
+      localStorage.setItem('rcp:admin-pin-ok', data.user_id);
       const { error: sessionError } = await db.auth.setSession({
         access_token: data.session.access_token,
         refresh_token: data.session.refresh_token
       });
       if (sessionError) {
-        sessionStorage.removeItem('rcp:admin-pin-ok');
+        localStorage.removeItem('rcp:admin-pin-ok');
         toast(sessionError.message, 'error');
         btn.disabled = false;
         btn.textContent = 'Zaloguj';
@@ -217,7 +217,7 @@
         btn.textContent = 'Ustaw PIN';
         return;
       }
-      sessionStorage.removeItem('rcp:admin-pin-ok');
+      localStorage.removeItem('rcp:admin-pin-ok');
       const cleanUrl = window.location.href.split('#')[0].split('?')[0];
       history.replaceState({}, '', cleanUrl);
       await db.auth.signOut();
@@ -245,7 +245,7 @@
 
     source = source.replace(
       "  async function logout() {\n    await db.auth.signOut();",
-      "  async function logout() {\n    sessionStorage.removeItem('rcp:admin-pin-ok');\n    await db.auth.signOut();"
+      "  async function logout() {\n    localStorage.removeItem('rcp:admin-pin-ok');\n    await db.auth.signOut();"
     );
 
     source = source.replace(
@@ -420,7 +420,7 @@
             : 'To konto nie ma jeszcze PIN-u administratora. Ustaw go teraz.');
         }
 
-        if (sessionStorage.getItem('rcp:admin-pin-ok') !== state.user.id) {
+        if (localStorage.getItem('rcp:admin-pin-ok') !== state.user.id) {
           return renderLogin('Potwierdź dostęp administracyjny e-mailem i PIN-em.', 'admin');
         }
       }
