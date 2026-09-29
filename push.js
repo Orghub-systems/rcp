@@ -119,5 +119,156 @@
     }
   }
 
-  window.RCPPush = Object.freeze({});
+  async function invoke(body) {
+    const session = readSession();
+    if (!session?.access_token) throw new Error('Sesja wygasła. Zaloguj się ponownie.');
+
+    const res = await fetch(`${cfg.supabaseUrl}/functions/v1/work-push`, {
+      method: 'POST',
+      headers: {
+        apikey: cfg.supabasePublishableKey,
+        Authorization: `Bearer ${session.access_token}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify(body)
+    });
+
+    const data = await res.json().catch(() => null);
+    if (!res.ok) throw new Error(data?.error || `Błąd ${res.status}`);
+    return data;
+  }
+
+  async function enablePush(button) {
+    button.disabled = true;
+    try {
+      if (!('Notification' in window) || !('serviceWorker' in navigator) || !('PushManager' in window)) {
+        throw new Error('To urządzenie nie obsługuje powiadomień push.');
+      }
+
+      const permission = await Notification.requestPermission();
+      if (permission !== 'granted') throw new Error('Nie udzielono zgody na powiadomienia.');
+
+      const registration = await navigator.serviceWorker.ready;
+      let subscription = await registration.pushManager.getSubscription();
+
+      if (!subscription) {
+        subscription = await registration.pushManager.subscribe({
+          userVisibleOnly: true,
+          applicationServerKey: keyBytes(vapidPublicKey)
+        });
+      }
+
+      await saveSubscription(subscription);
+      toast('Powiadomienia push zostały włączone.', 'success');
+      await renderPushCard(button.closest('#rcpPushAdminCard'));
+    } catch (err) {
+      toast(err?.message || 'Nie udało się włączyć powiadomień.', 'error');
+      button.disabled = false;
+    }
+  }
+
+  async function disablePush(button) {
+    button.disabled = true;
+    try {
+      const session = readSession();
+      const subscription = await browserSubscription();
+
+      if (subscription && session?.user?.id) {
+        await request(
+          `push_subscriptions?user_id=eq.${encodeURIComponent(session.user.id)}&endpoint=eq.${encodeURIComponent(subscription.endpoint)}`,
+          {
+            method: 'PATCH',
+            body: { active: false, updated_at: new Date().toISOString() },
+            prefer: 'return=minimal'
+          }
+        ).catch(() => undefined);
+
+        await subscription.unsubscribe();
+      }
+
+      toast('Powiadomienia push zostały wyłączone.', 'success');
+      await renderPushCard(button.closest('#rcpPushAdminCard'));
+    } catch (err) {
+      toast(err?.message || 'Nie udało się wyłączyć powiadomień.', 'error');
+      button.disabled = false;
+    }
+  }
+
+  async function renderPushCard(card) {
+    if (!card) return;
+
+    const supported = 'Notification' in window && 'serviceWorker' in navigator && 'PushManager' in window;
+    let enabled = false;
+
+    if (supported && Notification.permission === 'granted') {
+      try { enabled = !!(await browserSubscription()); } catch (_) {}
+    }
+
+    card.innerHTML = `
+      <div class="section-head">
+        <div>
+          <h3>🔔 Powiadomienia push</h3>
+          <div class="muted small">Start i koniec pracy pracowników</div>
+        </div>
+      </div>
+      <div class="notice ${enabled ? 'notice-info' : 'notice-error'}" style="margin-top:0">
+        ${!supported ? 'To urządzenie nie obsługuje Web Push.' : enabled ? 'Powiadomienia są włączone na tym urządzeniu.' : 'Powiadomienia są wyłączone na tym urządzeniu.'}
+      </div>
+      ${supported ? `<button class="btn ${enabled ? 'btn-light' : 'btn-dark'} btn-block" type="button" data-push-mode="${enabled ? 'off' : 'on'}">${enabled ? 'Wyłącz powiadomienia' : 'Włącz powiadomienia push'}</button>` : ''}
+    `;
+
+    const toggle = card.querySelector('[data-push-mode]');
+    if (toggle) {
+      toggle.addEventListener('click', () => toggle.dataset.pushMode === 'on' ? enablePush(toggle) : disablePush(toggle));
+    }
+  }
+
+  async function decorateAdmin() {
+    if (document.getElementById('rcpPushAdminCard')) return;
+
+    const dashboard = document.querySelector('.tab.active[data-tab="dashboard"]');
+    if (!dashboard) return;
+
+    const member = await currentMembership();
+    if (!member || member.role !== 'admin') return;
+
+    const tabs = dashboard.closest('.tabs');
+    if (!tabs) return;
+
+    const card = document.createElement('div');
+    card.id = 'rcpPushAdminCard';
+    card.className = 'card';
+
+    const anchor = document.getElementById('rcpSettlementAdminCard')
+      || document.getElementById('rcpStatsAdminCard')
+      || document.getElementById('rcpVacationAdminCard')
+      || tabs;
+
+    anchor.insertAdjacentElement('afterend', card);
+    await renderPushCard(card);
+  }
+
+  async function notifyWorkEvent(memberId, sessionId, eventType) {
+    if (!memberId || !sessionId || !['start', 'stop'].includes(eventType)) return;
+    try {
+      await invoke({
+        action: 'send_work_event',
+        member_id: memberId,
+        session_id: sessionId,
+        event_type: eventType
+      });
+    } catch (err) {
+      console.warn('RCP push:', err);
+    }
+  }
+
+  window.RCPPush = Object.freeze({ notifyWorkEvent });
+
+  function scheduleDecorate() {
+    clearTimeout(decorateTimer);
+    decorateTimer = setTimeout(() => decorateAdmin().catch(() => undefined), 160);
+  }
+
+  new MutationObserver(scheduleDecorate).observe(document.documentElement, { childList: true, subtree: true });
+  window.addEventListener('load', () => setTimeout(scheduleDecorate, 700));
 })();
