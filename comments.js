@@ -257,6 +257,7 @@
       const sessionId = result?.id || await latestClosedSessionId(memberId);
       if (!sessionId) throw new Error('Czas zakończono, ale nie udało się odnaleźć wpisu do komentarza.');
 
+      window.RCPPush?.notifyWorkEvent?.(memberId, sessionId, 'stop');
       savePending(sessionId, memberId);
       showCommentCard(sessionId);
 
