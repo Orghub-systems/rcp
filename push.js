@@ -75,5 +75,49 @@
     return Uint8Array.from([...raw].map(ch => ch.charCodeAt(0)));
   }
 
+  async function browserSubscription() {
+    if (!('serviceWorker' in navigator) || !('PushManager' in window)) return null;
+    const registration = await navigator.serviceWorker.ready;
+    return registration.pushManager.getSubscription();
+  }
+
+  async function saveSubscription(subscription) {
+    const session = readSession();
+    if (!session?.user?.id) throw new Error('Brak zalogowanego administratora.');
+
+    const json = subscription.toJSON();
+    const endpoint = json.endpoint || subscription.endpoint;
+    const existing = await request(
+      `push_subscriptions?select=id&user_id=eq.${encodeURIComponent(session.user.id)}&endpoint=eq.${encodeURIComponent(endpoint)}&limit=1`
+    );
+    const row = Array.isArray(existing) ? existing[0] : null;
+    const payload = {
+      user_id: session.user.id,
+      provider: 'webpush',
+      endpoint,
+      token: null,
+      p256dh: json.keys?.p256dh || '',
+      auth_secret: json.keys?.auth || '',
+      device_label: 'RCP PWA',
+      user_agent: navigator.userAgent || null,
+      active: true,
+      updated_at: new Date().toISOString()
+    };
+
+    if (row?.id) {
+      await request(`push_subscriptions?id=eq.${encodeURIComponent(row.id)}`, {
+        method: 'PATCH',
+        body: payload,
+        prefer: 'return=minimal'
+      });
+    } else {
+      await request('push_subscriptions', {
+        method: 'POST',
+        body: payload,
+        prefer: 'return=minimal'
+      });
+    }
+  }
+
   window.RCPPush = Object.freeze({});
 })();
