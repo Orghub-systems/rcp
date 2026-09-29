@@ -99,15 +99,18 @@ find(m => m.id === memberId);
     state.busy = true;
     const btn = document.getElementById('punchBtn');
     if (btn) btn.disabled = true;
-    const fn = state.currentSession ? 'stop_work' : 'start_work';
-    const { error } = await db.rpc(fn, { p_member_id: state.membership.id });
+    const wasStopping = !!state.currentSession;
+    const fn = wasStopping ? 'stop_work' : 'start_work';
+    const { data, error } = await db.rpc(fn, { p_member_id: state.membership.id });
     if (error) {
       toast(error.message, 'error');
       state.busy = false;
       if (btn) btn.disabled = false;
       return;
     }
-    toast(state.currentSession ? 'Czas pracy zakończony.' : 'Czas pracy rozpoczęty.', 'success');
+    const changedSession = Array.isArray(data) ? data[0] : data;
+    if (changedSession?.id) window.RCPPush?.notifyWorkEvent?.(state.membership.id, changedSession.id, wasStopping ? 'stop' : 'start');
+    toast(wasStopping ? 'Czas pracy zakończony.' : 'Czas pracy rozpoczęty.', 'success');
     await loadEmployeeData();
     state.busy = false;
     renderEmployee();
