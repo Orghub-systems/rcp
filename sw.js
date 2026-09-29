@@ -5,6 +5,7 @@ const SHELL = [
   './styles.css',
   './loader.js',
   './navigation.js',
+  './push.js',
   './comments.js',
   './vacation.js',
   './stats.js',
