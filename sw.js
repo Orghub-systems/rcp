@@ -45,3 +45,18 @@ self.addEventListener('fetch', event => {
       .catch(() => caches.match(event.request).then(r => r || caches.match('./index.html')))
   );
 });
+
+
+self.addEventListener('push', event => {
+  let data = {};
+  try { data = event.data ? event.data.json() : {}; } catch (_) {}
+  event.waitUntil(
+    self.registration.showNotification(data.title || 'RCP', {
+      body: data.body || '',
+      icon: './icon.svg',
+      badge: './icon.svg',
+      tag: data.tag || 'rcp-work-event',
+      data: data.data || { url: './' }
+    })
+  );
+});
