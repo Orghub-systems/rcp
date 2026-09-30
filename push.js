@@ -207,7 +207,15 @@
     let enabled = false;
 
     if (supported && Notification.permission === 'granted') {
-      try { enabled = !!(await browserSubscription()); } catch (_) {}
+      try {
+        const subscription = await browserSubscription();
+        if (subscription) {
+          await saveSubscription(subscription);
+          enabled = true;
+        }
+      } catch (err) {
+        console.warn('RCP push sync:', err);
+      }
     }
 
     card.innerHTML = `
@@ -218,7 +226,7 @@
         </div>
       </div>
       <div class="notice ${enabled ? 'notice-info' : 'notice-error'}" style="margin-top:0">
-        ${!supported ? 'To urządzenie nie obsługuje Web Push.' : enabled ? 'Powiadomienia są włączone na tym urządzeniu.' : 'Powiadomienia są wyłączone na tym urządzeniu.'}
+        ${!supported ? 'To urządzenie nie obsługuje Web Push.' : enabled ? 'Powiadomienia są aktywne i zapisane na serwerze.' : Notification.permission === 'denied' ? 'Powiadomienia są zablokowane w ustawieniach telefonu.' : 'Powiadomienia są wyłączone na tym urządzeniu.'}
       </div>
       ${supported ? `<button class="btn ${enabled ? 'btn-light' : 'btn-dark'} btn-block" type="button" data-push-mode="${enabled ? 'off' : 'on'}">${enabled ? 'Wyłącz powiadomienia' : 'Włącz powiadomienia push'}</button>` : ''}
     `;
