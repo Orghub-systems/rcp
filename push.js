@@ -75,10 +75,15 @@
     return Uint8Array.from([...raw].map(ch => ch.charCodeAt(0)));
   }
 
+  async function serviceWorkerRegistration() {
+    if (!('serviceWorker' in navigator)) return null;
+    return (await navigator.serviceWorker.getRegistration()) || await navigator.serviceWorker.register('./sw.js');
+  }
+
   async function browserSubscription() {
-    if (!('serviceWorker' in navigator) || !('PushManager' in window)) return null;
-    const registration = await navigator.serviceWorker.ready;
-    return registration.pushManager.getSubscription();
+    if (!('PushManager' in window)) return null;
+    const registration = await serviceWorkerRegistration();
+    return registration ? registration.pushManager.getSubscription() : null;
   }
 
   async function saveSubscription(subscription) {
@@ -148,7 +153,8 @@
       const permission = await Notification.requestPermission();
       if (permission !== 'granted') throw new Error('Nie udzielono zgody na powiadomienia.');
 
-      const registration = await navigator.serviceWorker.ready;
+      const registration = await serviceWorkerRegistration();
+      if (!registration) throw new Error('Nie udało się uruchomić obsługi powiadomień.');
       let subscription = await registration.pushManager.getSubscription();
 
       if (!subscription) {
