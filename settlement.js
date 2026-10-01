@@ -292,12 +292,14 @@
 
     try {
       const data = await loadFinance(ctx);
-      const summary = summarizeMember(ctx.membership.id, data);
+      const monthKey = currentMonthKey(ctx.timeZone);
+      const summary = summarizeMember(ctx.membership.id, data, monthKey, ctx.timeZone);
       card.innerHTML = `
         <button class="rcp-settlement-open" type="button">
           <div class="rcp-settlement-open-title"><span>💰</span><b>ROZLICZENIE</b></div>
+          <div class="small muted" style="margin-bottom:8px;font-weight:800">${esc(monthLabel(monthKey))}</div>
           ${balanceSummaryHtml(summary, true)}
-          <div class="small muted">Naliczenia, zaliczki i wypłaty</div>
+          <div class="small muted">Zarobione: <b>${fmtMoney(summary.earned)}</b> · Zaliczki: <b>${fmtMoney(summary.advances)}</b> · Wypłaty: <b>${fmtMoney(summary.payouts)}</b></div>
         </button>`;
       card.querySelector('button').addEventListener('click', () => openSettlementModule(ctx, ctx.membership.id));
     } catch (err) {
@@ -320,27 +322,28 @@
 
     try {
       const data = await loadFinance(ctx);
+      const monthKey = currentMonthKey(ctx.timeZone);
       const rows = data.employees.map(member => {
-        const summary = summarizeMember(member.id, data);
+        const summary = summarizeMember(member.id, data, monthKey, ctx.timeZone);
         const state = balanceLabel(summary.balance);
         return `
           <button type="button" class="rcp-admin-balance-row" data-settlement-member="${member.id}">
-            <span class="rcp-admin-balance-name">${esc(employeeName(member))}</span>
+            <span class="rcp-admin-balance-name">${esc(employeeName(member))}<span class="row-sub" style="display:block;margin-top:3px">Zarobione ${fmtMoney(summary.earned)} · Zaliczki ${fmtMoney(summary.advances)} · Wypłaty ${fmtMoney(summary.payouts)}</span></span>
             <span class="rcp-admin-balance-value ${state.cls}">${esc(state.label)}: <b>${fmtMoney(Math.abs(summary.balance))}</b></span>
           </button>`;
       }).join('');
 
-      const total = data.employees.reduce((sum, member) => sum + summarizeMember(member.id, data).balance, 0);
+      const total = data.employees.reduce((sum, member) => sum + summarizeMember(member.id, data, monthKey, ctx.timeZone).balance, 0);
       card.innerHTML = `
         <div class="section-head">
           <div>
             <h3>💰 Rozliczenie</h3>
-            <div class="muted small">Aktualny bilans finansowy z pracownikami</div>
+            <div class="muted small">${esc(monthLabel(monthKey))} · rozliczenie miesięczne</div>
           </div>
           <button type="button" class="mini-btn" data-settlement-all>Otwórz</button>
         </div>
         <div class="rcp-company-balance">
-          <span>Łączny bilans</span>
+          <span>Łącznie do wypłaty · ${esc(monthLabel(monthKey))}</span>
           <b>${fmtMoney(total)}</b>
         </div>
         <div class="rcp-admin-balance-list">${rows || '<div class="muted small">Brak pracowników.</div>'}</div>`;
