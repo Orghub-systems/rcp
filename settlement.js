@@ -397,14 +397,15 @@
   }
 
   function renderAdminSettlementList(screen, ctx, data, close) {
+    const monthKey = currentMonthKey(ctx.timeZone);
     const rows = data.employees.map(member => {
-      const summary = summarizeMember(member.id, data);
+      const summary = summarizeMember(member.id, data, monthKey, ctx.timeZone);
       const state = balanceLabel(summary.balance);
       return `
         <button type="button" class="rcp-settlement-person-card" data-member="${member.id}">
           <div>
             <div class="row-title">${esc(employeeName(member))}</div>
-            <div class="row-sub">Naliczone: ${fmtMoney(summary.earned)} · rozliczono: ${fmtMoney(summary.paid)}</div>
+            <div class="row-sub">Zarobione: ${fmtMoney(summary.earned)} · Zaliczki: ${fmtMoney(summary.advances)} · Wypłaty: ${fmtMoney(summary.payouts)}</div>
           </div>
           <div class="rcp-balance-compact ${state.cls}">
             <span>${state.label}</span><b>${fmtMoney(Math.abs(summary.balance))}</b>
@@ -414,7 +415,7 @@
 
     screen.innerHTML = `
       <div class="rcp-stats-shell">
-        ${moduleHeader('Rozliczenie', 'Wszyscy pracownicy')}
+        ${moduleHeader('Rozliczenie', `${monthLabel(monthKey)} · wszyscy pracownicy`)}
         <div class="rcp-month-list">${rows || '<div class="card muted">Brak pracowników.</div>'}</div>
       </div>`;
     screen.querySelector('[data-settlement-close]').addEventListener('click', close);
@@ -431,17 +432,41 @@
       return;
     }
 
-    const summary = summarizeMember(memberId, data);
-    const history = data.settlements.filter(s => s.member_id === memberId);
-    const historyHtml = history.map(row => {
-      const own = row.created_by === ctx.session.user.id;
+    const monthKeys = memberMonthKeys(memberId, data, ctx.timeZone);
+    const currentKey = currentMonthKey(ctx.timeZone);
+
+    const monthsHtml = monthKeys.map(key => {
+      const summary = summarizeMember(memberId, data, key, ctx.timeZone);
+      const history = data.settlements
+        .filter(s => s.member_id === memberId && String(s.settlement_date || '').startsWith(key))
+        .sort((a, b) => String(b.settlement_date).localeCompare(String(a.settlement_date)) || String(b.created_at).localeCompare(String(a.created_at)));
+
+      const historyHtml = history.map(row => {
+        const own = row.created_by === ctx.session.user.id;
+        return `
+          <div class="rcp-settlement-history-row">
+            <div>
+              <div class="row-title">${esc(typeLabel(row.settlement_type))} · ${fmtMoney(row.amount)}</div>
+              <div class="row-sub">${dateLabel(row.settlement_date)} · wprowadził: ${own ? 'Ty' : 'druga strona'}</div>
+              ${row.note ? `<div class="row-sub">${esc(row.note)}</div>` : ''}
+            </div>
+          </div>`;
+      }).join('');
+
       return `
-        <div class="rcp-settlement-history-row">
-          <div>
-            <div class="row-title">${esc(typeLabel(row.settlement_type))} · ${fmtMoney(row.amount)}</div>
-            <div class="row-sub">${dateLabel(row.settlement_date)} · wprowadził: ${own ? 'Ty' : 'druga strona'}</div>
-            ${row.note ? `<div class="row-sub">${esc(row.note)}</div>` : ''}
+        <div class="card rcp-month-settlement-card">
+          <div class="section-head">
+            <div>
+              <h3 style="margin:0">${esc(monthLabel(key))}</h3>
+              <div class="muted small">${key === currentKey ? 'Bieżący miesiąc' : 'Zamknięty okres miesięczny'}</div>
+            </div>
           </div>
+          ${balanceSummaryHtml(summary)}
+          <div class="section-head" style="margin-top:16px">
+            <h3 style="font-size:15px">Zaliczki i wypłaty</h3>
+            <span class="small muted">${history.length} wpisów</span>
+          </div>
+          <div class="list">${historyHtml || '<div class="muted small">Brak zaliczek i wypłat w tym miesiącu.</div>'}</div>
         </div>`;
     }).join('');
 
@@ -449,21 +474,15 @@
       ? `
         <div class="rcp-stats-head">
           <button class="rcp-stats-back" type="button" data-settlement-list-back>←</button>
-          <div><div class="rcp-stats-title">Rozliczenie</div><div class="rcp-stats-subtitle">${esc(employeeName(member))}</div></div>
+          <div><div class="rcp-stats-title">Rozliczenie</div><div class="rcp-stats-subtitle">${esc(employeeName(member))} · miesiąc po miesiącu</div></div>
         </div>`
-      : moduleHeader('Rozliczenie', employeeName(member));
+      : moduleHeader('Rozliczenie', `${employeeName(member)} · miesiąc po miesiącu`);
 
     screen.innerHTML = `
       <div class="rcp-stats-shell">
         ${header}
-        <div class="card">
-          ${balanceSummaryHtml(summary)}
-          <div class="notice notice-info" style="margin-top:14px">Nową zaliczkę lub wypłatę dodajesz po wejściu w konkretny dzień w kalendarzu Statystyk.</div>
-        </div>
-        <div class="card">
-          <div class="section-head"><h3>Historia rozliczeń</h3><span class="small muted">${history.length} wpisów</span></div>
-          <div class="list">${historyHtml || '<div class="muted small">Brak zaliczek i wypłat.</div>'}</div>
-        </div>
+        <div class="notice notice-info" style="margin-top:0">Każdy miesiąc jest liczony oddzielnie: <b>Zarobione − Zaliczki − Wypłaty = Do wypłaty</b>.</div>
+        ${monthsHtml}
       </div>`;
 
     if (allowBackToList) {
