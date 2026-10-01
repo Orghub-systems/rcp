@@ -117,6 +117,40 @@
     }).format(new Date(iso));
   }
 
+  const MONTH_NAMES = ['Styczeń','Luty','Marzec','Kwiecień','Maj','Czerwiec','Lipiec','Sierpień','Wrzesień','Październik','Listopad','Grudzień'];
+
+  function monthKeyFromIso(iso, timeZone = 'Europe/Warsaw') {
+    const parts = new Intl.DateTimeFormat('en-CA', {
+      timeZone,
+      year: 'numeric',
+      month: '2-digit'
+    }).formatToParts(new Date(iso));
+    const year = parts.find(p => p.type === 'year')?.value;
+    const month = parts.find(p => p.type === 'month')?.value;
+    return year && month ? `${year}-${month}` : '';
+  }
+
+  function currentMonthKey(timeZone = 'Europe/Warsaw') {
+    return monthKeyFromIso(new Date().toISOString(), timeZone);
+  }
+
+  function monthLabel(key) {
+    const [year, month] = String(key || '').split('-').map(Number);
+    if (!year || !month) return '';
+    return `${MONTH_NAMES[month - 1]} ${year}`;
+  }
+
+  function memberMonthKeys(memberId, data, timeZone) {
+    const keys = new Set([currentMonthKey(timeZone)]);
+    data.sessions
+      .filter(s => s.member_id === memberId)
+      .forEach(s => keys.add(monthKeyFromIso(s.started_at, timeZone)));
+    data.settlements
+      .filter(s => s.member_id === memberId)
+      .forEach(s => keys.add(String(s.settlement_date || '').slice(0, 7)));
+    return [...keys].filter(Boolean).sort().reverse();
+  }
+
   function balanceLabel(value) {
     if (value > 0.004) return { label: 'Do wypłaty', cls: 'positive' };
     if (value < -0.004) return { label: 'Nadpłata', cls: 'negative' };
@@ -205,12 +239,18 @@
     return value;
   }
 
-  function summarizeMember(memberId, data) {
+  function summarizeMember(memberId, data, monthKey = '', timeZone = 'Europe/Warsaw') {
     const earned = data.sessions
-      .filter(s => s.member_id === memberId)
+      .filter(s =>
+        s.member_id === memberId &&
+        (!monthKey || monthKeyFromIso(s.started_at, timeZone) === monthKey)
+      )
       .reduce((sum, s) => sum + Number(s.earnings || 0), 0);
 
-    const own = data.settlements.filter(s => s.member_id === memberId);
+    const own = data.settlements.filter(s =>
+      s.member_id === memberId &&
+      (!monthKey || String(s.settlement_date || '').startsWith(monthKey))
+    );
     const advances = own.filter(s => s.settlement_type === 'advance').reduce((sum, s) => sum + Number(s.amount || 0), 0);
     const payouts = own.filter(s => s.settlement_type === 'payout').reduce((sum, s) => sum + Number(s.amount || 0), 0);
     const balance = earned - advances - payouts;
@@ -230,7 +270,7 @@
 
     return `
       <div class="rcp-balance-grid">
-        <div><span>Naliczone</span><b>${fmtMoney(summary.earned)}</b></div>
+        <div><span>Zarobione</span><b>${fmtMoney(summary.earned)}</b></div>
         <div><span>Zaliczki</span><b>${fmtMoney(summary.advances)}</b></div>
         <div><span>Wypłaty</span><b>${fmtMoney(summary.payouts)}</b></div>
         <div class="rcp-balance-main ${state.cls}"><span>${state.label}</span><b>${fmtMoney(Math.abs(summary.balance))}</b></div>
