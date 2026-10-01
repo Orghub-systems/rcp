@@ -151,6 +151,13 @@
     return [...keys].filter(Boolean).sort().reverse();
   }
 
+  function allMonthKeys(data, timeZone) {
+    const keys = new Set([currentMonthKey(timeZone)]);
+    data.sessions.forEach(s => keys.add(monthKeyFromIso(s.started_at, timeZone)));
+    data.settlements.forEach(s => keys.add(String(s.settlement_date || '').slice(0, 7)));
+    return [...keys].filter(Boolean).sort().reverse();
+  }
+
   function balanceLabel(value) {
     if (value > 0.004) return { label: 'Do wypłaty', cls: 'positive' };
     if (value < -0.004) return { label: 'Nadpłata', cls: 'negative' };
@@ -397,26 +404,50 @@
   }
 
   function renderAdminSettlementList(screen, ctx, data, close) {
-    const monthKey = currentMonthKey(ctx.timeZone);
-    const rows = data.employees.map(member => {
-      const summary = summarizeMember(member.id, data, monthKey, ctx.timeZone);
-      const state = balanceLabel(summary.balance);
+    const currentKey = currentMonthKey(ctx.timeZone);
+    const monthKeys = allMonthKeys(data, ctx.timeZone);
+
+    const monthsHtml = monthKeys.map(monthKey => {
+      const rows = data.employees.map(member => {
+        const summary = summarizeMember(member.id, data, monthKey, ctx.timeZone);
+        const state = balanceLabel(summary.balance);
+        return `
+          <button type="button" class="rcp-settlement-person-card" data-member="${member.id}">
+            <div>
+              <div class="row-title">${esc(employeeName(member))}</div>
+              <div class="row-sub">Zarobione: ${fmtMoney(summary.earned)} · Zaliczki: ${fmtMoney(summary.advances)} · Wypłaty: ${fmtMoney(summary.payouts)}</div>
+            </div>
+            <div class="rcp-balance-compact ${state.cls}">
+              <span>${state.label}</span><b>${fmtMoney(Math.abs(summary.balance))}</b>
+            </div>
+          </button>`;
+      }).join('');
+
+      const total = data.employees.reduce(
+        (sum, member) => sum + summarizeMember(member.id, data, monthKey, ctx.timeZone).balance,
+        0
+      );
+
       return `
-        <button type="button" class="rcp-settlement-person-card" data-member="${member.id}">
-          <div>
-            <div class="row-title">${esc(employeeName(member))}</div>
-            <div class="row-sub">Zarobione: ${fmtMoney(summary.earned)} · Zaliczki: ${fmtMoney(summary.advances)} · Wypłaty: ${fmtMoney(summary.payouts)}</div>
+        <div class="card rcp-month-settlement-card">
+          <div class="section-head">
+            <div>
+              <h3 style="margin:0">${esc(monthLabel(monthKey))}</h3>
+              <div class="muted small">${monthKey === currentKey ? 'Bieżący miesiąc' : 'Oddzielny okres rozliczeniowy'}</div>
+            </div>
+            <div class="rcp-balance-compact ${balanceLabel(total).cls}" style="margin:0">
+              <span>Łącznie</span><b>${fmtMoney(Math.abs(total))}</b>
+            </div>
           </div>
-          <div class="rcp-balance-compact ${state.cls}">
-            <span>${state.label}</span><b>${fmtMoney(Math.abs(summary.balance))}</b>
-          </div>
-        </button>`;
+          <div class="rcp-month-list">${rows || '<div class="muted small">Brak pracowników.</div>'}</div>
+        </div>`;
     }).join('');
 
     screen.innerHTML = `
       <div class="rcp-stats-shell">
-        ${moduleHeader('Rozliczenie', `${monthLabel(monthKey)} · wszyscy pracownicy`)}
-        <div class="rcp-month-list">${rows || '<div class="card muted">Brak pracowników.</div>'}</div>
+        ${moduleHeader('Rozliczenie', 'Miesiąc po miesiącu · wszyscy pracownicy')}
+        <div class="notice notice-info" style="margin-top:0">Każdy miesiąc jest liczony osobno: <b>Zarobione − Zaliczki − Wypłaty = Do wypłaty</b>.</div>
+        ${monthsHtml}
       </div>`;
     screen.querySelector('[data-settlement-close]').addEventListener('click', close);
     screen.querySelectorAll('[data-member]').forEach(btn => {
