@@ -1,4 +1,4 @@
-const CACHE = 'rcp-shell-v21';
+const CACHE = 'rcp-shell-v22';
 const SHELL = [
   './',
   './index.html',
@@ -13,6 +13,7 @@ const SHELL = [
   './vacation-admin.js',
   './stats.js',
   './settlement.js',
+  './settlement-edit.js',
   './app.part01.txt',
   './app.part02.txt',
   './app.part03.txt',
