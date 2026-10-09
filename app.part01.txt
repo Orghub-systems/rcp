@@ -227,15 +227,4 @@
   }
 
   async function selectMembership(memberId) {
-    const membership = state.memberships.find(m => m.id === memberId);
-    if (!membership) return;
-    state.membership = membership;
-    state.organization = state.organizations.find(o => o.id === membership.organization_id) || null;
-    state.view = 'organization';
-    state.adminTab = 'dashboard';
-    state.adminTimeMemberId = null;
-    localStorage.setItem('rcp:selected-membership', memberId);
-    localStorage.setItem('rcp:view', 'organization');
-    loading();
-    await renderSelectedTenant();
-  }
+    const membership = state.memberships.
