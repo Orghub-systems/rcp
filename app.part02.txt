@@ -4,6 +4,7 @@ find(m => m.id === memberId);
     state.organization = state.organizations.find(o => o.id === membership.organization_id) || null;
     state.view = 'organization';
     state.adminTab = 'dashboard';
+    state.adminTimeMemberId = null;
     localStorage.setItem('rcp:selected-membership', memberId);
     localStorage.setItem('rcp:view', 'organization');
     loading();
@@ -183,7 +184,13 @@ find(m => m.id === memberId);
     </div>`;
 
     bindTopbar();
-    document.querySelectorAll('[data-tab]').forEach(b => b.addEventListener('click', () => { state.adminTab = b.dataset.tab; renderAdmin(); }));
+    document.querySelectorAll('[data-tab]').forEach(b => b.addEventListener('click', () => {
+      const nextTab = b.dataset.tab;
+      if (nextTab === 'time' && state.adminTab !== 'time') state.adminTimeMemberId = null;
+      if (nextTab !== 'time') state.adminTimeMemberId = null;
+      state.adminTab = nextTab;
+      renderAdmin();
+    }));
     bindAdminActions();
 
     state.timerHandle = setInterval(async () => {
