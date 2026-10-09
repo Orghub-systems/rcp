@@ -59,7 +59,6 @@
   }
 
   function handleInternalBack() {
-    // Najpierw najbardziej zagnieżdżone okna.
     if (document.getElementById('rcpAddSettlementDialog')) {
       return clickOne('#rcpAddSettlementDialog [data-cancel]');
     }
@@ -72,13 +71,11 @@
       return clickOne('#rcpVacationDialog [data-vacation-cancel]');
     }
 
-    // Komentarz po zakończeniu pracy jest wymagany — cofnięcie go nie omija.
     if (document.getElementById('rcpEndComment')) {
       hint('Najpierw wyślij komentarz po zakończeniu pracy.');
       return true;
     }
 
-    // Pozostałe standardowe dialogi aplikacji.
     const genericDialog = [...document.querySelectorAll('.dialog-backdrop')]
       .reverse()
       .find(el => el.offsetParent !== null);
@@ -90,19 +87,18 @@
       }
     }
 
-    // Rozliczenie: szczegóły pracownika -> lista -> pulpit.
     if (document.getElementById('rcpSettlementScreen')) {
       if (clickOne('#rcpSettlementScreen [data-settlement-list-back]')) return true;
       if (clickOne('#rcpSettlementScreen [data-settlement-close]')) return true;
     }
 
-    // Statystyki: dzień -> miesiąc jest obsłużony wyżej, dalej miesiąc -> miesiące -> pulpit.
     if (document.getElementById('rcpStatsScreen')) {
       if (clickOne('#rcpStatsScreen [data-stats-back="months"]')) return true;
       if (clickOne('#rcpStatsScreen [data-stats-back="close"]')) return true;
     }
 
-    // Panel admina: z Zespołu/Czasu pracy wracamy na Pulpit zamiast wychodzić z aplikacji.
+    if (clickOne('[data-time-back]')) return true;
+
     const activeTab = document.querySelector('.tab.active[data-tab]');
     if (activeTab && activeTab.dataset.tab && activeTab.dataset.tab !== 'dashboard') {
       const dashboard = document.querySelector('.tab[data-tab="dashboard"]');
@@ -127,7 +123,6 @@
     if (now - lastRootBackAt < 1800) {
       exiting = true;
       lastRootBackAt = 0;
-      // Drugi szybki Wstecz: pozwalamy systemowi zamknąć PWA / wrócić do poprzedniej aplikacji.
       setTimeout(() => history.back(), 0);
       return;
     }
