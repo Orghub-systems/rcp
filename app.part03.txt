@@ -109,6 +109,7 @@ le === 'employee');
   function bindAdminActions() {
     document.getElementById('addEmployeeBtn')?.addEventListener('click', openAddEmployee);
     document.getElementById('addSessionBtn')?.addEventListener('click', () => openAddSession(state.adminTimeMemberId || ''));
+    document.querySelectorAll('[data-credentials]').forEach(b => b.addEventListener('click', () => openEmployeeCredentials(b.dataset.credentials)));
     document.querySelectorAll('[data-time-member]').forEach(b => b.addEventListener('click', () => { state.adminTimeMemberId = b.dataset.timeMember; renderAdmin(); }));
     document.querySelector('[data-time-back]')?.addEventListener('click', () => { state.adminTimeMemberId = null; renderAdmin(); });
     document.querySelectorAll('[data-rate]').forEach(b => b.addEventListener('click', () => openRate(b.dataset.rate)));
