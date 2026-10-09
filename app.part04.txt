@@ -28,11 +28,11 @@
     return state.members.filter(m => m.role === 'employee' && m.active).map(m => `<option value="${m.id}" ${m.id === selected ? 'selected' : ''}>${esc(m.first_name)} ${esc(m.last_name || '')}</option>`).join('');
   }
 
-  function openAddSession() {
+  function openAddSession(selectedMemberId = '') {
     const now = new Date();
     const start = new Date(now.getTime() - 8 * 3600000);
     const { wrap, save } = dialog('Dodaj wpis czasu', `<div class="form-grid">
-      <div class="field span-2"><label>Pracownik</label><select id="sessMember" class="select">${employeeOptions()}</select></div>
+      <div class="field span-2"><label>Pracownik</label><select id="sessMember" class="select">${employeeOptions(selectedMemberId)}</select></div>
       <div class="field"><label>Start</label><input id="sessStart" class="input" type="datetime-local" value="${toLocalInput(start.toISOString())}" required></div>
       <div class="field"><label>Koniec</label><input id="sessEnd" class="input" type="datetime-local" value="${toLocalInput(now.toISOString())}" required></div>
       <div class="field span-2"><label>Notatka</label><input id="sessNote" class="input"></div>
