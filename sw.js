@@ -1,8 +1,9 @@
-const CACHE = 'rcp-shell-v17';
+const CACHE = 'rcp-shell-v19';
 const SHELL = [
   './',
   './index.html',
   './styles.css',
+  './admin-time.css',
   './loader.js',
   './navigation.js',
   './push.js',
@@ -47,7 +48,6 @@ self.addEventListener('fetch', event => {
   );
 });
 
-
 self.addEventListener('push', event => {
   let data = {};
   try { data = event.data ? event.data.json() : {}; } catch (_) {}
@@ -61,7 +61,6 @@ self.addEventListener('push', event => {
     })
   );
 });
-
 
 self.addEventListener('notificationclick', event => {
   event.notification.close();
