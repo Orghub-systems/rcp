@@ -14,10 +14,71 @@ le === 'employee');
   }
 
   function adminTimeContent() {
-    const sessions = state.adminSessions.slice(0, 80);
-    return `<div class="card">
-      <div class="section-head"><div><h3>Czas pracy</h3><div class="muted small">Administrator może poprawić godziny. Zmiany trafiają do audytu.</div></div><button id="addSessionBtn" class="btn btn-dark">+ Wpis</button></div>
-      <div class="list">${sessions.length ? sessions.map(s => `<div class="row"><div class="row-main"><div class="row-title">${esc(s.first_name)} ${esc(s.last_name || '')}</div><div class="row-sub">${fmtDateTime(s.started_at)} → ${s.ended_at ? fmtDateTime(s.ended_at) : '<b>trwa</b>'}</div><div class="row-sub">${hhmm(s.duration_minutes)} · ${fmtMoney(s.earnings)}</div></div><div class="member-actions"><button class="mini-btn" data-edit-session="${s.id}">Edytuj</button></div></div>`).join('') : '<div class="muted small">Brak wpisów w tym miesiącu.</div>'}</div>
+    const employees = state.members.filter(m => m.role === 'employee');
+    const monthName = new Intl.DateTimeFormat('pl-PL', { timeZone: activeTimezone(), month: 'long', year: 'numeric' }).format(new Date());
+
+    if (!state.adminTimeMemberId) {
+      return `<div class="card">
+        <div class="section-head"><div><h3>Czas pracy</h3><div class="muted small">Wybierz pracownika, aby zobaczyć jego wpisy · ${esc(monthName)}</div></div><button id="addSessionBtn" class="btn btn-dark">+ Wpis</button></div>
+        <div class="rcp-time-employee-grid">${employees.length ? employees.map(member => {
+          const current = memberCurrent(member.id);
+          const total = memberMonth(member.id);
+          const sessions = state.adminSessions.filter(s => s.member_id === member.id);
+          const days = new Set(sessions.map(s => localDateKey(new Date(s.started_at)))).size;
+          const initials = `${(member.first_name || '?').charAt(0)}${(member.last_name || '').charAt(0)}`.toUpperCase();
+          return `<button type="button" class="rcp-time-employee-card ${member.active ? '' : 'is-inactive'}" data-time-member="${member.id}">
+            <div class="rcp-time-avatar">${esc(initials)}</div>
+            <div class="rcp-time-name">${esc(member.first_name)} ${esc(member.last_name || '')}</div>
+            <div class="member-status" style="color:${current ? 'var(--green)' : 'var(--muted)'}"><span class="dot"></span>${current ? 'PRACUJE' : 'NIE PRACUJE'}</div>
+            <div class="rcp-time-tile-stats"><span>${days} dni</span><span>${hhmm(total.minutes)}</span></div>
+            <div class="rcp-time-tile-earnings">${fmtMoney(total.earnings)}</div>
+          </button>`;
+        }).join('') : '<div class="muted small">Nie dodano jeszcze pracowników.</div>'}</div>
+      </div>`;
+    }
+
+    const member = employees.find(m => m.id === state.adminTimeMemberId);
+    if (!member) {
+      state.adminTimeMemberId = null;
+      return adminTimeContent();
+    }
+
+    const sessions = state.adminSessions.filter(s => s.member_id === member.id);
+    const total = memberMonth(member.id);
+    const days = new Set(sessions.map(s => localDateKey(new Date(s.started_at)))).size;
+    const current = memberCurrent(member.id);
+
+    return `<div class="card rcp-time-detail-card">
+      <div class="rcp-time-detail-head">
+        <button type="button" class="btn btn-light" data-time-back>← Pracownicy</button>
+        <button id="addSessionBtn" class="btn btn-dark">+ Wpis</button>
+      </div>
+      <div class="rcp-time-person-head">
+        <div>
+          <h3>${esc(member.first_name)} ${esc(member.last_name || '')}</h3>
+          <div class="muted small">${esc(monthName)} · ${current ? 'obecnie pracuje' : 'nie pracuje'}</div>
+        </div>
+        <div class="member-status" style="color:${current ? 'var(--green)' : 'var(--muted)'}"><span class="dot"></span>${current ? 'PRACUJE' : 'NIE PRACUJE'}</div>
+      </div>
+      <div class="rcp-time-summary">
+        <div class="stat"><div class="stat-label">Dni pracy</div><div class="stat-value">${days}</div></div>
+        <div class="stat"><div class="stat-label">Czas</div><div class="stat-value">${hhmm(total.minutes)}</div></div>
+        <div class="stat"><div class="stat-label">Zarobione</div><div class="stat-value">${fmtMoney(total.earnings)}</div></div>
+      </div>
+      <div class="section-head" style="margin-top:18px"><h3>Wpisy czasu pracy</h3><span class="small muted">${sessions.length} wpisów</span></div>
+      <div class="list">${sessions.length ? sessions.map(s => {
+        const mins = durationMinutes(s.started_at, s.ended_at || Date.now());
+        const earnings = s.hourly_rate != null ? mins / 60 * Number(s.hourly_rate) : s.earnings;
+        return `<div class="row rcp-time-session-row">
+          <div class="row-main">
+            <div class="row-title">${fmtDate(s.started_at)}</div>
+            <div class="row-sub"><b>${fmtTime(s.started_at)}</b> → ${s.ended_at ? `<b>${fmtTime(s.ended_at)}</b>` : '<b style="color:var(--green)">TRWA</b>'}</div>
+            <div class="row-sub">${hhmm(mins)} · ${fmtMoney(earnings)}</div>
+            ${s.note ? `<div class="rcp-time-note">${esc(s.note)}</div>` : ''}
+          </div>
+          <div class="member-actions"><button class="mini-btn" data-edit-session="${s.id}">Edytuj</button></div>
+        </div>`;
+      }).join('') : '<div class="muted small">Brak wpisów w tym miesiącu.</div>'}</div>
     </div>`;
   }
 
@@ -47,7 +108,9 @@ le === 'employee');
 
   function bindAdminActions() {
     document.getElementById('addEmployeeBtn')?.addEventListener('click', openAddEmployee);
-    document.getElementById('addSessionBtn')?.addEventListener('click', openAddSession);
+    document.getElementById('addSessionBtn')?.addEventListener('click', () => openAddSession(state.adminTimeMemberId || ''));
+    document.querySelectorAll('[data-time-member]').forEach(b => b.addEventListener('click', () => { state.adminTimeMemberId = b.dataset.timeMember; renderAdmin(); }));
+    document.querySelector('[data-time-back]')?.addEventListener('click', () => { state.adminTimeMemberId = null; renderAdmin(); });
     document.querySelectorAll('[data-rate]').forEach(b => b.addEventListener('click', () => openRate(b.dataset.rate)));
     document.querySelectorAll('[data-toggle-member]').forEach(b => b.addEventListener('click', () => toggleMember(b.dataset.toggleMember, b.dataset.active === 'true')));
     document.querySelectorAll('[data-edit-session]').forEach(b => b.addEventListener('click', () => openEditSession(b.dataset.editSession)));
