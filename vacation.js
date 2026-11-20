@@ -142,11 +142,12 @@
 
     const upcomingHtml = vacations.length
       ? vacations.map(v => `
-          <div class="row">
+          <div class="row" data-vacation-row="${v.id}">
             <div class="row-main">
               <div class="row-title">${esc(rangeLabel(v))}</div>
               <div class="row-sub">${v.starts_on <= today && v.ends_on >= today ? 'Trwa teraz' : 'Zgłoszony urlop'}</div>
             </div>
+            <button class="mini-btn" type="button" data-vacation-delete="${v.id}" data-vacation-label="${esc(rangeLabel(v))}">Usuń</button>
           </div>`).join('')
       : '<div class="muted small">Brak zgłoszonych urlopów.</div>';
 
@@ -188,6 +189,42 @@
 
     wrap.querySelector('[data-vacation-cancel]').addEventListener('click', () => wrap.remove());
     wrap.addEventListener('click', e => { if (e.target === wrap) wrap.remove(); });
+
+    wrap.querySelectorAll('[data-vacation-delete]').forEach(button => {
+      button.addEventListener('click', async () => {
+        const vacationId = button.dataset.vacationDelete;
+        const label = button.dataset.vacationLabel || 'ten urlop';
+        if (!vacationId) return;
+        if (!window.confirm(`Usunąć urlop: ${label}?`)) return;
+
+        button.disabled = true;
+        button.textContent = 'Usuwanie…';
+        errorBox.style.display = 'none';
+
+        try {
+          const deleted = await request(
+            `vacation_requests?id=eq.${encodeURIComponent(vacationId)}&member_id=eq.${encodeURIComponent(member.id)}`,
+            { method: 'DELETE', prefer: 'return=representation' }
+          );
+
+          if (!Array.isArray(deleted) || deleted.length === 0) {
+            throw new Error('Nie udało się usunąć urlopu.');
+          }
+
+          button.closest('[data-vacation-row]')?.remove();
+          const list = wrap.querySelector('.card .list');
+          if (list && !list.querySelector('[data-vacation-row]')) {
+            list.innerHTML = '<div class="muted small">Brak zgłoszonych urlopów.</div>';
+          }
+          toast(`Urlop ${label} został usunięty.`, 'success');
+        } catch (err) {
+          errorBox.textContent = err?.message || 'Nie udało się usunąć urlopu.';
+          errorBox.style.display = 'block';
+          button.disabled = false;
+          button.textContent = 'Usuń';
+        }
+      });
+    });
 
     send.addEventListener('click', async () => {
       const starts_on = from.value;
