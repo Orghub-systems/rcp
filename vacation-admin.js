@@ -218,6 +218,29 @@
     box.style.display = 'block';
   }
 
+  async function deleteAdminVacation(vacationId, label = 'ten urlop') {
+    if (!vacationId) return;
+    if (!window.confirm(`Usunąć urlop: ${label}?`)) return;
+
+    try {
+      const deleted = await request(
+        `vacation_requests?id=eq.${encodeURIComponent(vacationId)}`,
+        { method: 'DELETE', prefer: 'return=representation' }
+      );
+
+      if (!Array.isArray(deleted) || deleted.length === 0) {
+        throw new Error('Nie udało się usunąć urlopu.');
+      }
+
+      adminCache = null;
+      toast(`Urlop ${label} został usunięty.`, 'success');
+      scheduleDecorate(true);
+    } catch (err) {
+      toast(err?.message || 'Nie udało się usunąć urlopu.', 'error');
+    }
+  }
+
+
   function decorateDashboard(ctx, data) {
     const active = document.querySelector('.tab.active[data-tab="dashboard"]');
     if (!active) return;
@@ -241,7 +264,10 @@
         const status = vacationStatus(v, today);
         return `<div class="row">
           <div class="row-main"><div class="row-title">${esc(fullName(m))}</div><div class="row-sub">${esc(rangeLabel(v))}</div></div>
-          <div class="member-status" style="color:${status.color}">${status.label}</div>
+          <div class="member-actions">
+            <div class="member-status" style="color:${status.color}">${status.label}</div>
+            <button type="button" class="mini-btn" data-admin-vacation-delete="${v.id}" data-admin-vacation-label="${esc(rangeLabel(v))}">Usuń</button>
+          </div>
         </div>`;
       }).join('');
 
@@ -252,6 +278,12 @@
       </div>
       <div class="list">${rows || '<div class="muted small">Brak urlopów.</div>'}</div>`;
     card.querySelector('[data-admin-vacation-add]')?.addEventListener('click', () => openAdminVacationDialog(ctx, data));
+    card.querySelectorAll('[data-admin-vacation-delete]').forEach(button => {
+      button.addEventListener('click', () => deleteAdminVacation(
+        button.dataset.adminVacationDelete,
+        button.dataset.adminVacationLabel || 'ten urlop'
+      ));
+    });
   }
 
   function decorateTeam(ctx, data) {
@@ -309,7 +341,8 @@
       const row = document.createElement('div');
       row.className = 'row rcp-time-vacation-row';
       row.dataset.sortKey = v.starts_on;
-      row.innerHTML = `<div class="row-main"><div class="row-title">${esc(rangeLabel(v))}</div><div class="rcp-vacation-badge">🏖️ URLOP</div><div class="row-sub">Dzień wolny od pracy</div></div>`;
+      row.innerHTML = `<div class="row-main"><div class="row-title">${esc(rangeLabel(v))}</div><div class="rcp-vacation-badge">🏖️ URLOP</div><div class="row-sub">Dzień wolny od pracy</div></div><button type="button" class="mini-btn" data-time-vacation-delete="${v.id}">Usuń</button>`;
+      row.querySelector('[data-time-vacation-delete]')?.addEventListener('click', () => deleteAdminVacation(v.id, rangeLabel(v)));
       list.appendChild(row);
     });
 
